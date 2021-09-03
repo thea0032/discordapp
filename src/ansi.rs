@@ -20,15 +20,7 @@ pub const BLUE: &str = "\u{001B}[34m";
 pub const MAGENTA: &str = "\u{001B}[35m";
 pub const CYAN: &str = "\u{001B}[36m";
 pub const WHITE: &str = "\u{001B}[37m";
-pub const COLORS: &[&str] = &[
-    WHITE,
-    RED,
-    GREEN,
-    YELLOW,
-    BLUE,
-    MAGENTA,
-    CYAN,
-];
+pub const COLORS: &[&str] = &[WHITE, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN];
 
 pub const BACKGROUND_BLACK: &str = "\u{001B}[40m";
 pub const BACKGROUND_GREY: &str = "\u{001b}[48;5;237m";

@@ -1,4 +1,7 @@
 1. create ctrl+k for fast travel to channels (perhaps f?)
-2. Create quick edit/delete mode
+2. Create quick edit/delete mode (potentially e? Then t to type (edit message), m to merge, d to delete, c to commit, esc to exit, and n to cancel)
+    2a. Quick UI tool which allows you to show/hide messages (and delete already-deleted ones)
 3. Moderation tools
 4. Create a get_message function that gets more than 50 messages
+5. Add more messages when you approach the top of a channel
+6. Add "jump to present" function

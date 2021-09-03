@@ -1,9 +1,6 @@
 use std::{io::Stdout, mem::replace};
 
-use crossterm::{
-    cursor::MoveTo,
-    queue, style,
-};
+use crossterm::{cursor::MoveTo, queue, style};
 
 pub struct Textbox {
     text: Vec<Vec<char>>,
@@ -29,7 +26,7 @@ impl Textbox {
                 .last_mut()
                 .expect("illegal state")
                 .append(&mut line.chars().collect());
-                self.text.push(Vec::new());
+            self.text.push(Vec::new());
         }
         self.text.pop();
     }
@@ -65,7 +62,13 @@ impl Textbox {
             None
         }
     }
-    pub fn draw(&mut self, start_x: u16, start_y: u16, out: &mut Stdout, force_cursor_move: bool) -> bool {
+    pub fn draw(
+        &mut self,
+        start_x: u16,
+        start_y: u16,
+        out: &mut Stdout,
+        force_cursor_move: bool,
+    ) -> bool {
         if self.flag {
             self.draw_real(start_x, start_y, out);
             self.flag = false;
@@ -119,7 +122,7 @@ impl Textbox {
                 i += 1;
                 continue;
             }
-            i += (line.len() - 1) / self.length;
+            i += (line.len() - 1) / self.length + 1;
         }
         i
     }

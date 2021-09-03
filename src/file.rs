@@ -1,17 +1,16 @@
 use std::fs::{self, write};
-use std::io::{self, Write, stdin, stdout};
+use std::io::{self, stdin, stdout, Write};
 use std::process::Command;
 
 use crate::ansi;
 
 #[cfg(target_os = "windows")]
-pub const SEP:char = '\\';
+pub const SEP: char = '\\';
 #[cfg(not(target_os = "windows"))]
-pub const SEP:char = '/';
-
-pub fn get_str() -> String {
+pub const SEP: char = '/';
+pub fn get_str(msg: &str) -> String {
     let mut buffer = String::new();
-    println!("Couldn't find token in filesystem! You will now be prompted to enter the token manually.");
+    print!("{}", msg);
     let _ = stdout().flush();
     let _ = stdin().read_line(&mut buffer);
     if let Some('\n') = buffer.chars().last() {
@@ -22,28 +21,32 @@ pub fn get_str() -> String {
     }
     buffer
 }
-pub fn fs_write<> (url: &str) -> Option<(String, bool)> {
-    let mut p =  std::env::current_dir().ok()?;
+pub fn fs_write(url: &str) -> Option<(String, bool)> {
+    let mut p = std::env::current_dir().ok()?;
     p.push("output");
     p.push(url);
     let p_clone = p.clone();
     let s = p_clone.as_os_str();
     match std::fs::read(s) {
         Ok(_) => s.to_str().and_then(|x| (Some((x.to_string(), false)))),
-        Err(_) => {
-           s.to_str().and_then(|x| Some((x.to_string(), true)))
-        },
+        Err(_) => s.to_str().and_then(|x| Some((x.to_string(), true))),
     }
 }
 pub fn fs_write_2(value: Vec<u8>, url: &str) {
-    let mut p =  std::env::current_dir().ok().expect("Current directory cannot be found!");
+    let mut p = std::env::current_dir()
+        .ok()
+        .expect("Current directory cannot be found!");
     p.push("output");
     p.push(url);
     write(p, value).expect("could not write to file!");
 }
-///debug function. Don't touch unless you know what you're doing. It's not being debugged; it's for debugging. 
+///debug function. Don't touch unless you know what you're doing. It's not being debugged; it's for debugging.
 pub fn add_on(file: &str, value: &str) {
-    std::fs::write(file, std::fs::read_to_string(file).unwrap_or(String::new()) + "\n" + value).expect("Nobody cares, you moron");
+    std::fs::write(
+        file,
+        std::fs::read_to_string(file).unwrap_or(String::new()) + "\n" + value,
+    )
+    .expect("Nobody cares, you moron");
 }
 pub fn open_with(file: &str, program: &str) {
     Command::new(program).arg(file).spawn().expect("FAILURE");
@@ -52,7 +55,11 @@ pub fn run(program: &str) {
     Command::new(program).spawn().expect("FAILURE");
 }
 pub fn current_dir() -> String {
-    std::env::current_dir().expect("FAILED").to_str().unwrap().to_string()
+    std::env::current_dir()
+        .expect("FAILED")
+        .to_str()
+        .unwrap()
+        .to_string()
 }
 pub fn from_relative_path(string: String) -> String {
     let mut temp = std::env::current_dir().expect("FAILED");
@@ -87,7 +94,7 @@ pub fn get_file(current: &str, prompt: &str) -> io::Result<String> {
             }
             println!("{}", line.file_name().to_str().unwrap());
         } // prints out the current directory
-        let input = get_str();
+        let input = get_str("");
         if input == "." {
             let mut temp = path.split(SEP).collect::<Vec<&str>>();
             temp.pop();
@@ -102,18 +109,24 @@ pub fn get_file(current: &str, prompt: &str) -> io::Result<String> {
         }
     }
 }
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct FileOptions {
+    // the path to the browser
     pub browser: String,
 }
 impl FileOptions {
     pub fn new() -> FileOptions {
         //let browser = get_file_root("please choose the browser you would like to use with this interface.").expect("failed to select a browser");
         FileOptions {
-            browser: "\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe".to_string(),
+            browser: "\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+                .to_string(),
         }
     }
     pub fn open(&self, file: &str) {
-        let extension = file.split('.').last(); // the extension will be used later. 
-        Command::new(&self.browser).arg(file).spawn().expect("Could not open file!");
+        let extension = file.split('.').last(); // the extension will be used later.
+        Command::new(&self.browser)
+            .arg(file)
+            .spawn()
+            .expect("Could not open file!");
     }
 }

@@ -6,6 +6,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{ansi, categories::Categories, channels::Channels, grid::Grid, messages::Messages};
 const DEFAULT: &str = "uncategorized channels";
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub enum Unread {
     Read,
     Unread,
@@ -18,7 +20,7 @@ pub struct Servers {
     pub contents: Vec<Categories>,
     pub current: usize,
     pub selected: usize,
-    flag: bool,
+    pub flag: bool,
 }
 impl Servers {
     pub fn new() -> Self {
@@ -61,7 +63,8 @@ impl Servers {
             }
             self.unread.insert(pos, Unread::Read);
             self.labels.insert(pos, name);
-            self.contents.insert(pos, Categories::new(DEFAULT, Some(id)));
+            self.contents
+                .insert(pos, Categories::new(DEFAULT, Some(id)));
         } else {
             self.unread.push(Unread::Read);
             self.labels.push(name);

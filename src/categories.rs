@@ -1,15 +1,15 @@
 use std::io::Stdout;
 
 use crossterm::{queue, style::Print};
-use serenity::model::{channel::{GuildChannel}, id::GuildId};
+use serenity::model::{channel::GuildChannel, id::GuildId};
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::servers::Unread;
 use crate::{
     ansi,
     channels::{self, Channels},
     grid::Grid,
 };
-use crate::servers::Unread;
 pub struct Categories {
     pub labels: Vec<String>,
     pub unread: Vec<Unread>,
@@ -17,7 +17,7 @@ pub struct Categories {
     pub current: usize,
     pub selected: usize,
     pub s_id: Option<GuildId>,
-    flag: bool,
+    pub flag: bool,
 }
 impl Categories {
     pub fn new(catch_name: &str, server: Option<GuildId>) -> Self {

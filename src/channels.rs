@@ -15,7 +15,7 @@ pub struct Channels {
     pub current: usize,
     pub selected: usize,
     pub id: Option<GuildChannel>,
-    flag: bool,
+    pub flag: bool,
 }
 const DEFAULT: &str = "placeholder channel";
 impl Channels {

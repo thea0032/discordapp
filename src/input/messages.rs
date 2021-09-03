@@ -7,18 +7,21 @@ use super::{Context, State};
 impl super::Parser {
     pub fn parse_none_message(&mut self, input: KeyEvent) {
         let KeyEvent { code, modifiers: _ } = input;
-        self.servers.get3().update(&mut self.client, &mut self.user_dict);
-        self.servers.get3().draw(&self.grid, &mut self.out, &self.user_dict);
+        self.servers
+            .get3()
+            .update(&mut self.client, &mut self.user_dict);
+        self.servers
+            .get3()
+            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client);
         match self.servers.get3() {
             Messages::Unloaded(_) => {
                 panic!("this should never happen!");
             }
-            Messages::Loaded(_) => {
-            },
+            Messages::Loaded(_) => {}
             _ => {
                 self.grid.context = Context::Channel;
                 self.reset_all();
-                return
+                return;
             }
         }
         match code {
@@ -44,13 +47,19 @@ impl super::Parser {
                 self.servers.get3().assume_loaded().back();
             }
             KeyCode::Char('c') => {
-                self.servers.get3().assume_loaded().color(&mut self.user_dict);
+                self.servers
+                    .get3()
+                    .assume_loaded()
+                    .color(&mut self.user_dict);
             }
             KeyCode::Char('m') => {
                 self.message_person();
             }
             KeyCode::Char('o') => {
-                self.servers.get3().assume_loaded().open(&self.file_options, &self.grid);
+                self.servers
+                    .get3()
+                    .assume_loaded()
+                    .open(&self.file_options, &self.grid);
             }
             _ => {}
         }

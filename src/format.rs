@@ -1,4 +1,3 @@
-
 use chrono::{DateTime, Datelike, Local, Timelike};
 
 pub fn format_time(then: DateTime<Local>) -> String {

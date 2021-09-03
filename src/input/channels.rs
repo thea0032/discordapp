@@ -1,4 +1,3 @@
-
 use crossterm::event::{KeyCode, KeyEvent};
 
 use super::State;

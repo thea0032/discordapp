@@ -4,11 +4,22 @@ use chrono::Local;
 use crossterm::{queue, style::Print};
 
 use futures::executor::block_on;
-use serenity::{Client, model::{channel::{Channel, Message, PrivateChannel}, id::MessageId}};
-use unicode_segmentation::{UnicodeSegmentation};
+use serenity::{
+    model::{
+        channel::{Channel, Message, PrivateChannel},
+        id::MessageId,
+    },
+    Client,
+};
+use unicode_segmentation::UnicodeSegmentation;
 
-
-use crate::{ansi, file::FileOptions, grid::Grid, input::Parser, message::{LoadedMessage, UserDict, UserInfo}};
+use crate::{
+    ansi,
+    file::FileOptions,
+    grid::Grid,
+    input::Parser,
+    message::{LoadedMessage, UserDict, UserInfo},
+};
 
 pub struct MessageData;
 
@@ -36,10 +47,10 @@ impl Messages {
             Messages::Nonexistent => None,
         }
     }
-    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &UserDict) -> bool {
+    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client) -> bool {
         match self {
             Messages::Unloaded(_) => false,
-            Messages::Loaded(val) => val.draw(grid, out, dict),
+            Messages::Loaded(val) => val.draw(grid, out, dict, client),
             Messages::Nonexistent => false,
         }
     }
@@ -47,14 +58,20 @@ impl Messages {
         if let Messages::Unloaded(v) = self {
             if let Some(val) = v.clone().guild() {
                 let (messages, complete) = Parser::get_messages(client, val.clone());
-                *self = Messages::Loaded(
-                    LoadedMessages::with_messages(v.clone(), messages, complete, dict)
-                );
+                *self = Messages::Loaded(LoadedMessages::with_messages(
+                    v.clone(),
+                    messages,
+                    complete,
+                    dict,
+                ));
             } else if let Some(val) = v.clone().private() {
                 let (messages, complete) = Parser::get_messages_p(client, val.clone());
-                *self = Messages::Loaded(
-                    LoadedMessages::with_messages(v.clone(), messages, complete, dict)
-                );
+                *self = Messages::Loaded(LoadedMessages::with_messages(
+                    v.clone(),
+                    messages,
+                    complete,
+                    dict,
+                ));
             } else {
                 panic!("We have encountered a new channel type somehow!")
             }
@@ -64,10 +81,14 @@ impl Messages {
     pub fn update_to_end(&mut self, client: &mut Client, dict: &mut UserDict) -> bool {
         self.update(client, dict);
         if let Messages::Loaded(v) = self {
-            if let Some(message_id) = v.more_after {
+            if v.more_after {
+                // gets the message id to use as a timestamp. If there are no messages, a default of zero is used. 
+                let message_id = v.labels.last().and_then(|x| Some(x.id.0)).unwrap_or(0);
                 let ch = v.id.clone();
                 if let Some(val) = ch.clone().private() {
-                    if let Ok(messages) = block_on(val.messages(client.cache_and_http.http.clone(), |x| x.after(message_id))) {
+                    if let Ok(messages) = block_on(
+                        val.messages(client.cache_and_http.http.clone(), |x| x.after(message_id)),
+                    ) {
                         for message in messages.into_iter().rev() {
                             v.add(message, None, dict);
                         }
@@ -75,16 +96,17 @@ impl Messages {
                         panic!("failed to get messages: ");
                     }
                 } else if let Some(val) = ch.guild() {
-                    if let Ok(messages) = block_on(val.messages(client.cache_and_http.http.clone(), |x| x.after(message_id))) {
+                    if let Ok(messages) = block_on(
+                        val.messages(client.cache_and_http.http.clone(), |x| x.after(message_id)),
+                    ) {
                         for message in messages.into_iter().rev() {
                             v.add(message, None, dict);
                         }
                     } else {
                         panic!("failed to get messages: ");
                     }
-
                 }
-                v.more_after = None;
+                v.more_after = false;
                 true
             } else {
                 false
@@ -103,23 +125,24 @@ impl Messages {
 }
 pub struct LoadedMessages {
     pub labels: Vec<LoadedMessage>, // main vec contains messages, other vec contains lines
-    pub unread: usize, // the first unread message
+    pub unread: usize,              // the first unread message
     pub current: usize,
     pub current_in_message: usize,
     pub selected: usize,
     pub id: Channel,
-    pub more_before: Option<MessageId>,
-    pub more_after: Option<MessageId>,
-    flag: bool,
+    pub more_before: bool,
+    pub more_after: bool,
+    pub flag: bool,
 }
 impl LoadedMessages {
-    pub fn with_messages(id: Channel, messages: Vec<Message>, complete: bool, dict: &mut UserDict) -> Self {
+    pub fn with_messages(
+        id: Channel,
+        messages: Vec<Message>,
+        complete: bool,
+        dict: &mut UserDict,
+    ) -> Self {
         let mut result = LoadedMessages::new(id);
-        if !complete {
-            result.more_before = messages.last().clone().and_then(|x| Some(x.id));
-        } else {
-            result.more_before = None;
-        }
+        result.more_before = !complete;
         for line in messages.into_iter().rev() {
             result.add(line, None, dict);
         }
@@ -134,8 +157,8 @@ impl LoadedMessages {
             flag: true,
             current_in_message: 0,
             id,
-            more_before: None,
-            more_after: None,
+            more_before: false,
+            more_after: false,
         }
     }
     pub fn flag(&mut self) {
@@ -148,10 +171,10 @@ impl LoadedMessages {
     }
     pub fn up(&mut self, grid: &Grid) {
         let cap_len = self.count(grid, self.current) - 1;
-        while self.current_in_message > cap_len{
+        while self.current_in_message > cap_len {
             self.current_in_message -= 1;
         }
-        if self.current_in_message > 0  {
+        if self.current_in_message > 0 {
             self.current_in_message -= 1;
             self.flag = true;
         } else if self.current > 0 {
@@ -161,7 +184,7 @@ impl LoadedMessages {
         }
     }
     pub fn down(&mut self, grid: &Grid) {
-        if self.current_in_message < self.count(grid, self.current) - 1  {
+        if self.current_in_message < self.count(grid, self.current) - 1 {
             self.current_in_message += 1;
             self.flag = true;
         } else if self.current < self.labels.len() - 1 {
@@ -170,19 +193,25 @@ impl LoadedMessages {
             self.flag = true;
         }
     }
-    pub fn ctrl_up(&mut self) -> usize {
+    pub fn shift_up(&mut self) {
         if self.current > 0 {
             self.current -= 1;
             self.flag = true;
         }
-        self.current
     }
-    pub fn ctrl_down(&mut self) -> usize {
+    pub fn shift_down(&mut self) {
         if self.current < self.labels.len() - 1 {
             self.current += 1;
             self.flag = true;
         }
-        self.current
+    }
+    pub fn ctrl_up(&mut self) {
+        self.current = 0;
+        self.current_in_message = 0;
+    }
+    pub fn ctrl_down(&mut self, grid: &Grid) {
+        self.current = self.labels.len();
+        self.current_in_message = self.count(grid, self.labels.len() - 1);
     }
     pub fn select(&mut self) {
         self.selected = self.current;
@@ -197,10 +226,12 @@ impl LoadedMessages {
         self.flag = true;
     }
     pub fn add(&mut self, msg: Message, pos: Option<usize>, dict: &mut UserDict) {
-        dict.contents.entry(msg.author.id).or_insert_with(|| UserInfo {
-            name: msg.author.name.clone(),
-            color: 0,
-        });
+        dict.contents
+            .entry(msg.author.id)
+            .or_insert_with(|| UserInfo {
+                name: msg.author.name.clone(),
+                color: 0,
+            });
         let content = msg.content.clone();
         let name = msg.author.id;
         if let Some(pos) = pos {
@@ -210,7 +241,12 @@ impl LoadedMessages {
             if pos < self.selected {
                 self.selected += 1;
             }
-            let mut message = LoadedMessage::from_content(name, content.lines().map(|x| x.to_string()).collect(), msg.timestamp.with_timezone(&Local), msg.id);
+            let mut message = LoadedMessage::from_content(
+                name,
+                content.lines().map(|x| x.to_string()).collect(),
+                msg.timestamp.with_timezone(&Local),
+                msg.id,
+            );
             for embed in msg.embeds {
                 crate::file::add_on("debug", &format!("{:?}", embed));
                 message = message.embed(embed);
@@ -220,7 +256,12 @@ impl LoadedMessages {
             }
             self.labels.insert(pos, message);
         } else {
-            let mut message = LoadedMessage::from_content(name, content.split('\n').map(|x| x.to_string()).collect(), msg.timestamp.with_timezone(&Local), msg.id);
+            let mut message = LoadedMessage::from_content(
+                name,
+                content.split('\n').map(|x| x.to_string()).collect(),
+                msg.timestamp.with_timezone(&Local),
+                msg.id,
+            );
             for embed in msg.embeds {
                 crate::file::add_on("debug", &format!("{:?}", embed));
                 message = message.embed(embed);
@@ -245,16 +286,16 @@ impl LoadedMessages {
         self.labels.remove(pos);
         self.flag = true;
     }
-    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &UserDict) -> bool {
+    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client) -> bool {
         if self.flag {
-            self.draw_real_new(grid, out, dict);
+            self.draw_real_new(grid, out, dict, client);
             self.flag = false;
             true
         } else {
             false
         }
     }
-    fn draw_real_new(&mut self, grid: &Grid, out: &mut Stdout, dict: &UserDict) {
+    fn draw_real_new(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client) {
         let mut counter = 0;
         let start = self.beginning_pos(grid.height());
         let sample = " ".graphemes(true).cycle();
@@ -275,16 +316,22 @@ impl LoadedMessages {
                     .graphemes(true)
                     .collect::<Vec<_>>()
                     .chunks(grid.len_messages())
-                    .map(|x| x.iter().fold(String::new(), |x, y| x + *y)) {
-                        if i == self.current && indicator == self.current_in_message {
-                            hover_pos = counter;
-                        }
-                        if i == self.selected && indicator == 0 {
-                            selected_pos = counter;
-                        }
-                        counter += 1;
-                        indicator += 1;
-                    result.push(line.graphemes(true).chain(sample.clone()).take(grid.len_messages()).collect());
+                    .map(|x| x.iter().fold(String::new(), |x, y| x + *y))
+                {
+                    if i == self.current && indicator == self.current_in_message {
+                        hover_pos = counter;
+                    }
+                    if i == self.selected && indicator == 0 {
+                        selected_pos = counter;
+                    }
+                    counter += 1;
+                    indicator += 1;
+                    result.push(
+                        line.graphemes(true)
+                            .chain(sample.clone())
+                            .take(grid.len_messages())
+                            .collect(),
+                    );
                 }
             }
             if i == self.current && hover_pos == usize::MAX {
@@ -326,6 +373,22 @@ impl LoadedMessages {
             let _ = queue!(out, Print(crate::ansi::RESET.to_string()));
         }
     }
+    fn update(&mut self, client: &mut Client, dict: &mut UserDict) {
+        if self.more_before {
+            let id = self.labels[0].id;
+            if let Some(v) = self.id.clone().guild() {
+                match tokio::runtime::Runtime::new().expect("cannot create runtime!").block_on(
+                v.messages(Arc::clone(&client.cache_and_http.http), |x| x.before(id))) {
+                    Ok(v) => {
+                        for line in v.into_iter().rev() {
+                            self.add(line, Some(0), dict);
+                        }
+                    },
+                    Err(e) => {},
+                }
+            }
+        }
+    }
     fn beginning_pos(&self, height: usize) -> usize {
         if height >= self.labels.len() || self.current <= height / 2 {
             0
@@ -351,7 +414,7 @@ impl LoadedMessages {
             if line.is_empty() {
                 result += 1;
             } else {
-                result += (line.len() - 1) / len + 1; 
+                result += (line.len() - 1) / len + 1;
             }
         }
         result += self.labels[pos].content.attachments.len();
@@ -362,7 +425,12 @@ impl LoadedMessages {
         if len == 0 {
             None
         } else {
-            Some((self.current_in_message + len).checked_sub(self.count(grid, self.current)).unwrap_or(0).min(len - 1))
+            Some(
+                (self.current_in_message + len)
+                    .checked_sub(self.count(grid, self.current))
+                    .unwrap_or(0)
+                    .min(len - 1),
+            )
         }
     }
     pub fn message_person(&self, client: &mut Client) -> serenity::Result<PrivateChannel> {
