@@ -1,4 +1,4 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent};
 
 use super::State;
 
@@ -6,33 +6,37 @@ impl super::Parser {
     pub fn parse_none_category(&mut self, input: KeyEvent) {
         let KeyEvent { code, modifiers: _ } = input;
         match code {
-            crossterm::event::KeyCode::Left => {
+            KeyCode::Left => {
                 self.grid.context = super::Context::Server;
                 self.servers.get().flag();
                 self.servers.flag();
             }
-            crossterm::event::KeyCode::Right => {
+            KeyCode::Right => {
                 self.grid.context = super::Context::Channel;
                 self.servers.get().flag();
                 self.servers.get2().flag();
             }
-            crossterm::event::KeyCode::Up => {
+            KeyCode::Up => {
                 self.servers.get().up();
             }
-            crossterm::event::KeyCode::Down => {
+            KeyCode::Down => {
                 self.servers.get().down();
             }
-            crossterm::event::KeyCode::Enter => {
+            KeyCode::Enter => {
                 self.servers.get().select();
                 self.reset_all();
             }
-            crossterm::event::KeyCode::Char('t') => {
+            KeyCode::Char('t') => {
                 self.state = State::Message;
             }
-            crossterm::event::KeyCode::Char('f') => {
+            KeyCode::Char('f') => {
                 self.state = State::Filter;
             }
             _ => {}
         }
+    }
+    pub fn parse_visual_categories(&mut self, input: KeyEvent) {
+        let KeyEvent { code, modifiers: _ } = input;
+        
     }
 }

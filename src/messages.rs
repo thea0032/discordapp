@@ -1,13 +1,12 @@
-use std::{io::Stdout, sync::Arc};
+use std::{collections::VecDeque, io::Stdout, sync::Arc};
 
 use chrono::Local;
 use crossterm::{queue, style::Print};
 
-use futures::executor::block_on;
+use crate::{block_on::block_on, colors::Color};
 use serenity::{
     model::{
         channel::{Channel, Message, PrivateChannel},
-        id::MessageId,
     },
     Client,
 };
@@ -20,8 +19,6 @@ use crate::{
     input::Parser,
     message::{LoadedMessage, UserDict, UserInfo},
 };
-
-pub struct MessageData;
 
 pub enum Messages {
     Unloaded(Channel),
@@ -57,19 +54,19 @@ impl Messages {
     pub fn update(&mut self, client: &mut Client, dict: &mut UserDict) {
         if let Messages::Unloaded(v) = self {
             if let Some(val) = v.clone().guild() {
-                let (messages, complete) = Parser::get_messages(client, val.clone());
+                let (messages, more) = Parser::get_messages(client, val.clone());
                 *self = Messages::Loaded(LoadedMessages::with_messages(
                     v.clone(),
                     messages,
-                    complete,
+                    more,
                     dict,
                 ));
             } else if let Some(val) = v.clone().private() {
-                let (messages, complete) = Parser::get_messages_p(client, val.clone());
+                let (messages, more) = Parser::get_messages_p(client, val.clone());
                 *self = Messages::Loaded(LoadedMessages::with_messages(
                     v.clone(),
                     messages,
-                    complete,
+                    more,
                     dict,
                 ));
             } else {
@@ -83,7 +80,7 @@ impl Messages {
         if let Messages::Loaded(v) = self {
             if v.more_after {
                 // gets the message id to use as a timestamp. If there are no messages, a default of zero is used. 
-                let message_id = v.labels.last().and_then(|x| Some(x.id.0)).unwrap_or(0);
+                let message_id = v.labels.back().and_then(|x| Some(x.id.0)).unwrap_or(0);
                 let ch = v.id.clone();
                 if let Some(val) = ch.clone().private() {
                     if let Ok(messages) = block_on(
@@ -124,7 +121,7 @@ impl Messages {
     }
 }
 pub struct LoadedMessages {
-    pub labels: Vec<LoadedMessage>, // main vec contains messages, other vec contains lines
+    pub labels: VecDeque<LoadedMessage>, // main vec contains messages, other vec contains lines
     pub unread: usize,              // the first unread message
     pub current: usize,
     pub current_in_message: usize,
@@ -138,11 +135,11 @@ impl LoadedMessages {
     pub fn with_messages(
         id: Channel,
         messages: Vec<Message>,
-        complete: bool,
+        more: bool,
         dict: &mut UserDict,
     ) -> Self {
         let mut result = LoadedMessages::new(id);
-        result.more_before = !complete;
+        result.more_before = more;
         for line in messages.into_iter().rev() {
             result.add(line, None, dict);
         }
@@ -150,7 +147,7 @@ impl LoadedMessages {
     }
     pub fn new(id: Channel) -> Self {
         LoadedMessages {
-            labels: vec![],
+            labels: VecDeque::new(),
             unread: 0,
             current: 0,
             selected: 0,
@@ -164,10 +161,20 @@ impl LoadedMessages {
     pub fn flag(&mut self) {
         self.flag = true;
     }
-    pub fn color(&mut self, dict: &mut UserDict) {
+    pub fn red(&mut self, dict: &mut UserDict) {
         let v = &mut self.labels[self.current];
         self.flag = true;
-        v.change_color(dict);
+        v.red(dict);
+    }
+    pub fn blue(&mut self, dict: &mut UserDict) {
+        let v = &mut self.labels[self.current];
+        self.flag = true;
+        v.blue(dict);
+    }
+    pub fn green(&mut self, dict: &mut UserDict) {
+        let v = &mut self.labels[self.current];
+        self.flag = true;
+        v.green(dict);
     }
     pub fn up(&mut self, grid: &Grid) {
         let cap_len = self.count(grid, self.current) - 1;
@@ -230,7 +237,7 @@ impl LoadedMessages {
             .entry(msg.author.id)
             .or_insert_with(|| UserInfo {
                 name: msg.author.name.clone(),
-                color: 0,
+                color: Color::new(),
             });
         let content = msg.content.clone();
         let name = msg.author.id;
@@ -269,7 +276,7 @@ impl LoadedMessages {
             for attachment in msg.attachments {
                 message = message.attachment(attachment);
             }
-            self.labels.push(message);
+            self.labels.push_back(message);
             if self.labels.len() > 2 && self.labels.len() - 2 == self.current {
                 self.current += 1;
             }
@@ -372,15 +379,23 @@ impl LoadedMessages {
             );
             let _ = queue!(out, Print(crate::ansi::RESET.to_string()));
         }
+        if self.current < grid.height() / 2 {
+            self.update(client, dict);
+        }
     }
+    /// Provides an extra update towards the beginning
     fn update(&mut self, client: &mut Client, dict: &mut UserDict) {
         if self.more_before {
             let id = self.labels[0].id;
             if let Some(v) = self.id.clone().guild() {
-                match tokio::runtime::Runtime::new().expect("cannot create runtime!").block_on(
+                match block_on(
                 v.messages(Arc::clone(&client.cache_and_http.http), |x| x.before(id))) {
                     Ok(v) => {
-                        for line in v.into_iter().rev() {
+                        if v.len() == 0 {
+                            self.more_before = false;
+                            // TODO: Add "beginning of channel" message
+                        }
+                        for line in v.into_iter() {
                             self.add(line, Some(0), dict);
                         }
                     },

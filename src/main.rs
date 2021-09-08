@@ -15,12 +15,6 @@ use input::Response;
 use serenity::framework::StandardFramework;
 use serenity::{async_trait, model::channel::Message, prelude::*};
 
-use crate::file::from_relative_path;
-use crate::file::get_file;
-use crate::file::get_file_root;
-use crate::file::open_with;
-use crate::file::run;
-
 #[allow(dead_code)]
 mod ansi;
 pub mod categories;
@@ -35,6 +29,8 @@ pub mod messages;
 mod save;
 mod servers;
 mod textbox;
+mod block_on;
+mod colors;
 struct DummyHandler;
 impl EventHandler for DummyHandler {}
 
@@ -68,8 +64,7 @@ fn get_token() -> String {
         file::get_str("Couldn't find token in filesystem! You will now be prompted to enter the token manually.")
     }
 }
-#[tokio::main]
-async fn main() {
+fn main() {
     let token = get_token();
     // Configure the client with your Discord bot token in the environment.
     let (send, recv) = channel();
@@ -77,18 +72,16 @@ async fn main() {
     // automatically prepend your bot token with "Bot ", which is a requirement
     // by Discord for bot users.
     let framework = StandardFramework::new();
-    let mut client = Client::builder(&token)
+    let mut client = block_on::block_on(Client::builder(&token)
         .framework(framework)
         .event_handler(Handler {
             send: Mutex::new(send),
-        })
-        .await
+        }))
         .expect("Err creating client");
     let framework = StandardFramework::new();
-    let client2 = Client::builder(&token)
+    let client2 = block_on::block_on(Client::builder(&token)
         .framework(framework)
-        .event_handler(DummyHandler)
-        .await
+        .event_handler(DummyHandler))
         .expect("Err creating client");
 
     // Finally, start a single shard, and start listening to events.

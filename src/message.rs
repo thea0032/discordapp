@@ -1,7 +1,7 @@
 use std::collections::{HashMap, LinkedList};
 
 use chrono::{DateTime, Local};
-use futures::executor::block_on;
+use crate::{block_on::block_on, colors::Color};
 use serenity::model::{
     channel::{Attachment, Embed},
     id::{MessageId, UserId},
@@ -93,27 +93,36 @@ impl LoadedMessage {
     pub fn user(&self, dict: &UserDict, len: usize) -> String {
         let info = &dict.contents[&self.user];
         if len < info.name.len() {
-            return crate::ansi::COLORS[info.color].to_string()
+            return info.color.to_ansi_value()
                 + &*info.name.chars().take(len).collect::<String>();
         } else {
-            return crate::ansi::COLORS[info.color].to_string()
+            return  info.color.to_ansi_value()
                 + &*(info.name.clone() + " " + &*format_time(self.content.time))
                     .chars()
                     .take(len)
                     .collect::<String>();
         }
     }
-    pub fn change_color(&self, dict: &mut UserDict) {
+    pub fn red(&self, dict: &mut UserDict) {
         let mut info = (&dict.contents[&self.user]).clone();
-        info.color += 1;
-        info.color %= COLORS.len();
+        info.color.red();
+        dict.contents.insert(self.user, info);
+    }
+    pub fn blue(&self, dict: &mut UserDict) {
+        let mut info = (&dict.contents[&self.user]).clone();
+        info.color.blue();
+        dict.contents.insert(self.user, info);
+    }
+    pub fn green(&self, dict: &mut UserDict) {
+        let mut info = (&dict.contents[&self.user]).clone();
+        info.color.green();
         dict.contents.insert(self.user, info);
     }
 }
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct UserInfo {
     pub name: String,
-    pub color: usize,
+    pub color: Color,
 }
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct UserDict {

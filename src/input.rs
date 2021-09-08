@@ -14,13 +14,12 @@ use std::{
     time::Duration,
 };
 
-use crate::{file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load}, servers::Servers, textbox::Textbox};
+use crate::{block_on::block_on, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load}, servers::Servers, textbox::Textbox};
 use crossterm::{
     event::{read, Event, KeyCode, KeyEvent},
     execute, queue,
     terminal::{Clear, ClearType},
 };
-use futures::executor::block_on;
 use serde_json::json;
 use serenity::{
     client,
@@ -46,6 +45,7 @@ pub enum State {
     Message,
     Filter,
     Quit,
+    Visual,
 }
 pub enum Context {
     Server,
@@ -147,6 +147,7 @@ impl Parser {
                                 break 'outer;
                             }
                         }
+                        State::Visual => self.parse_visual(key),
                     },
                     Event::Mouse(_) => todo!(),
                     Event::Resize(length, height) => {
@@ -475,6 +476,14 @@ impl Parser {
                     .grab2(0, 0)
                     .add(val.name(), None, Channel::Private(val));
             }
+        }
+    }
+    pub fn parse_visual(&mut self, event: KeyEvent) {
+        match self.grid.context {
+            Context::Server => self.parse_visual_servers(event),
+            Context::Category => self.parse_visual_categories(event),
+            Context::Channel => self.parse_visual_channels(event),
+            Context::Message => self.parse_visual_messages(event),
         }
     }
 }

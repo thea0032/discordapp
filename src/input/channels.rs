@@ -30,4 +30,7 @@ impl super::Parser {
             _ => {}
         }
     }
+    pub fn parse_visual_channels(&mut self, input: KeyEvent) {
+        
+    }
 }

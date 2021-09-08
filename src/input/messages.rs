@@ -46,11 +46,8 @@ impl super::Parser {
             KeyCode::Char('b') => {
                 self.servers.get3().assume_loaded().back();
             }
-            KeyCode::Char('c') => {
-                self.servers
-                    .get3()
-                    .assume_loaded()
-                    .color(&mut self.user_dict);
+            KeyCode::Char('v') => {
+                self.state = State::Visual;
             }
             KeyCode::Char('m') => {
                 self.message_person();
@@ -61,6 +58,27 @@ impl super::Parser {
                     .assume_loaded()
                     .open(&self.file_options, &self.grid);
             }
+            _ => {}
+        }
+    }
+    pub fn parse_visual_messages(&mut self, input: KeyEvent) {
+        let KeyEvent {code, modifiers: _} = input;
+        match code {
+            KeyCode::Backspace | KeyCode::Esc | KeyCode::Enter => self.state = State::None,
+            KeyCode::Left => {
+                self.grid.context = Context::Channel;
+                self.servers.get3().assume_loaded().flag();
+                self.servers.get2().flag();
+            }
+            KeyCode::Up => {
+                self.servers.get3().assume_loaded().up(&self.grid);
+            }
+            KeyCode::Down => {
+                self.servers.get3().assume_loaded().down(&self.grid);
+            }
+            KeyCode::Char('r') => self.servers.get3().assume_loaded().red(&mut self.user_dict),
+            KeyCode::Char('g') => self.servers.get3().assume_loaded().green(&mut self.user_dict),
+            KeyCode::Char('b') => self.servers.get3().assume_loaded().blue(&mut self.user_dict),
             _ => {}
         }
     }

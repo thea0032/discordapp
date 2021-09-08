@@ -1,4 +1,4 @@
-use std::{fs, io::stdout, sync::mpsc::{Receiver, channel}, time::{Duration, Instant}};
+use std::{collections::VecDeque, fs, io::stdout, sync::mpsc::{Receiver, channel}, time::{Duration, Instant}};
 
 use crossterm::event::Event;
 use serenity::{Client, model::{
@@ -158,7 +158,7 @@ impl MessagesSave {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct LoadedMessagesSave {
-    pub labels: Vec<LoadedMessage>, // main vec contains messages, other vec contains lines
+    pub labels: VecDeque<LoadedMessage>, // main vec contains messages, other vec contains lines
     pub unread: usize,              // the first unread message
     pub id: Channel,
     pub more_before: bool, // more_after will be assumed to be true

@@ -33,4 +33,7 @@ impl super::Parser {
             _ => {}
         }
     }
+    pub fn parse_visual_servers(&mut self, input: KeyEvent) {
+        
+    }
 }
