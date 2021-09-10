@@ -7,7 +7,7 @@ use serenity::{Client, model::{
 }};
 use serde_json::to_string;
 use serde_json::from_str;
-use crate::{categories::Categories, channels::Channels, file::FileOptions, grid::Grid, input::{Parser, Response, State}, message::{LoadedMessage, UserDict}, messages::{LoadedMessages, Messages}, servers::{Servers, Unread}, textbox::Textbox};
+use crate::{categories::{Categories, CategoryLabel}, channels::{ChannelLabel, Channels}, file::FileOptions, grid::Grid, input::{Parser, Response, State}, message::{LoadedMessage, UserDict}, messages::{LoadedMessages, Messages}, servers::{ServerLabel, Servers, Unread}, textbox::Textbox};
 
 pub const PATH:&str = "save.ignore";
 
@@ -45,7 +45,7 @@ impl ParserSave {
 }
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ServerSave {
-    pub labels: Vec<String>,
+    pub labels: Vec<ServerLabel>,
     pub unread: Vec<Unread>,
     pub contents: Vec<CategorySave>,
 }
@@ -70,7 +70,7 @@ impl ServerSave {
 }
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct CategorySave {
-    pub labels: Vec<String>,
+    pub labels: Vec<CategoryLabel>,
     pub unread: Vec<Unread>,
     pub contents: Vec<ChannelSave>,
     pub s_id: Option<GuildId>,
@@ -102,7 +102,7 @@ impl CategorySave {
 }
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ChannelSave {
-    pub labels: Vec<String>,
+    pub labels: Vec<ChannelLabel>,
     pub unread: Vec<Unread>,
     pub contents: Vec<MessagesSave>,
     pub current: usize,

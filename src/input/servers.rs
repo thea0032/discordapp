@@ -34,6 +34,28 @@ impl super::Parser {
         }
     }
     pub fn parse_visual_servers(&mut self, input: KeyEvent) {
-        
+        let KeyEvent {code, ..} = input;
+        match code {
+            KeyCode::Backspace | KeyCode::Delete | KeyCode::Esc => self.state = State::None,
+            KeyCode::Right => {
+                self.grid.context = super::Context::Category;
+                self.servers.flag();
+                self.servers.get().flag();
+            }
+            KeyCode::Up => {
+                self.servers.up();
+            }
+            KeyCode::Down => {
+                self.servers.down();
+            }
+            KeyCode::Enter => {
+                self.servers.select();
+                self.reset_all();
+            }
+            KeyCode::Char('c') => {
+                self.servers.color();
+            },
+            _ => {}
+        }
     }
 }

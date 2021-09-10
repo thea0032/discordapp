@@ -1,4 +1,4 @@
-use std::fs::{self, write};
+use std::fs::{self, read, write};
 use std::io::{self, stdin, stdout, Write};
 use std::process::Command;
 
@@ -21,23 +21,18 @@ pub fn get_str(msg: &str) -> String {
     }
     buffer
 }
-pub fn fs_write(url: &str) -> Option<(String, bool)> {
-    let mut p = std::env::current_dir().ok()?;
+pub fn fs_write(url: &str) -> (String, bool) {
+    let mut p = std::env::current_dir().expect("Could not find the current directory!");
     p.push("output");
     p.push(url);
     let p_clone = p.clone();
     let s = p_clone.as_os_str();
-    match std::fs::read(s) {
-        Ok(_) => s.to_str().and_then(|x| (Some((x.to_string(), false)))),
-        Err(_) => s.to_str().and_then(|x| Some((x.to_string(), true))),
-    }
+    (s.to_str().unwrap().to_string(), read(s).is_err())
 }
-pub fn fs_write_2(value: Vec<u8>, url: &str) {
-    let mut p = std::env::current_dir()
-        .ok()
-        .expect("Current directory cannot be found!");
+pub fn fs_write_2(value: Vec<u8>, location: &str) {
+    let mut p = std::env::current_dir().expect("Current directory cannot be found!");
     p.push("output");
-    p.push(url);
+    p.push(location);
     write(p, value).expect("could not write to file!");
 }
 ///debug function. Don't touch unless you know what you're doing. It's not being debugged; it's for debugging.

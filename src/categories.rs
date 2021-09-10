@@ -4,14 +4,33 @@ use crossterm::{queue, style::Print};
 use serenity::model::{channel::GuildChannel, id::GuildId};
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::colors::SimpleColor;
 use crate::servers::Unread;
 use crate::{
     ansi,
     channels::{self, Channels},
     grid::Grid,
 };
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+
+pub struct CategoryLabel {
+    name: String,
+    color: SimpleColor,
+}
+impl CategoryLabel {
+    pub fn new(name: String) -> CategoryLabel {
+        CategoryLabel {
+            name,
+            color: SimpleColor::new(),
+        }
+    }
+    pub fn to_string(&self) -> String {
+        self.color.to_ansi_value() + &self.name 
+    }
+}
+
 pub struct Categories {
-    pub labels: Vec<String>,
+    pub labels: Vec<CategoryLabel>,
     pub unread: Vec<Unread>,
     pub contents: Vec<Channels>,
     pub current: usize,
@@ -22,7 +41,7 @@ pub struct Categories {
 impl Categories {
     pub fn new(catch_name: &str, server: Option<GuildId>) -> Self {
         Self {
-            labels: vec![catch_name.to_string()],
+            labels: vec![CategoryLabel::new(catch_name.to_string())],
             unread: vec![Unread::Read],
             contents: vec![channels::Channels::new(None)],
             current: 0,
@@ -48,6 +67,10 @@ impl Categories {
         }
         self.current
     }
+    pub fn color(&mut self) {
+        self.flag = true;
+        self.labels[self.current].color.switch_color();
+    }
     pub fn select(&mut self) {
         self.selected = self.current;
         self.flag = true;
@@ -62,11 +85,11 @@ impl Categories {
                 self.current += 1;
             }
             self.unread.insert(pos, Unread::Read);
-            self.labels.insert(pos, name);
+            self.labels.insert(pos, CategoryLabel::new(name));
             self.contents.insert(pos, Channels::new(ch));
         } else {
             self.unread.push(Unread::Read);
-            self.labels.push(name);
+            self.labels.push(CategoryLabel::new(name));
             self.contents.push(Channels::new(ch));
         }
         self.flag = true;
@@ -112,7 +135,8 @@ impl Categories {
             let val: String = self
                 .labels
                 .get(i)
-                .unwrap_or(&String::new())
+                .map(|x| x.name.clone())
+                .unwrap_or(String::new())
                 .graphemes(true)
                 .chain(sample.clone())
                 .take(grid.len_categories() - 4)
@@ -159,6 +183,7 @@ impl Categories {
                     let _ = queue!(out, Print("!!! ".to_string()));
                 }
             };
+            let _ = queue!(out, Print(self.labels.get(i).map(|x| x.color.to_ansi_value()).unwrap_or(String::new())));
             let _ = queue!(out, Print(val));
             let _ = queue!(out, Print(crate::ansi::RESET.to_string(),));
         }

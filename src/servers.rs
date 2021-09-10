@@ -4,7 +4,7 @@ use crossterm::{queue, style::Print};
 use serenity::model::id::GuildId;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{ansi, categories::Categories, channels::Channels, grid::Grid, messages::Messages};
+use crate::{ansi, categories::Categories, channels::Channels, colors::SimpleColor, grid::Grid, messages::Messages};
 const DEFAULT: &str = "uncategorized channels";
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -14,8 +14,24 @@ pub enum Unread {
     Mentions(u64),
     Gone,
 }
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ServerLabel {
+    name: String,
+    color: SimpleColor,
+}
+impl ServerLabel {
+    pub fn new(name: String) -> ServerLabel {
+        ServerLabel {
+            name,
+            color: SimpleColor::new(),
+        }
+    }
+    pub fn to_string(&self) -> String {
+        self.color.to_ansi_value() + &self.name 
+    }
+}
 pub struct Servers {
-    pub labels: Vec<String>,
+    pub labels: Vec<ServerLabel>,
     pub unread: Vec<Unread>,
     pub contents: Vec<Categories>,
     pub current: usize,
@@ -25,7 +41,7 @@ pub struct Servers {
 impl Servers {
     pub fn new() -> Self {
         Self {
-            labels: vec!["serverless channels".to_string()],
+            labels: vec![ServerLabel::new("serverless channels".to_string())],
             unread: vec![Unread::Read, Unread::Read],
             contents: vec![Categories::new("DMs", None)],
             current: 0,
@@ -56,18 +72,22 @@ impl Servers {
         self.unread[pos] = state;
         self.flag = true;
     }
+    pub fn color(&mut self) {
+        self.flag = true;
+        self.labels[self.current].color.switch_color();
+    }
     pub fn add(&mut self, name: String, pos: Option<usize>, id: GuildId) {
         if let Some(pos) = pos {
             if pos < self.current {
                 self.current += 1;
             }
             self.unread.insert(pos, Unread::Read);
-            self.labels.insert(pos, name);
+            self.labels.insert(pos, ServerLabel::new(name));
             self.contents
                 .insert(pos, Categories::new(DEFAULT, Some(id)));
         } else {
             self.unread.push(Unread::Read);
-            self.labels.push(name);
+            self.labels.push(ServerLabel::new(name));
             self.contents.push(Categories::new(DEFAULT, Some(id)));
         }
         self.flag = true;
@@ -139,7 +159,8 @@ impl Servers {
             let val: String = self
                 .labels
                 .get(i)
-                .unwrap_or(&String::new())
+                .map(|x| x.name.clone())
+                .unwrap_or(String::new())
                 .graphemes(true)
                 .chain(sample.clone())
                 .take(grid.len_servers() - 4)
@@ -186,6 +207,7 @@ impl Servers {
                     let _ = queue!(out, Print("!!! ".to_string()));
                 }
             };
+            let _ = queue!(out, Print(self.labels.get(i).map(|x| x.color.to_ansi_value()).unwrap_or(String::new())));
             let _ = queue!(out, Print(val));
             let _ = queue!(out, Print(crate::ansi::RESET.to_string(),));
         }

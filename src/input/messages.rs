@@ -9,10 +9,10 @@ impl super::Parser {
         let KeyEvent { code, modifiers: _ } = input;
         self.servers
             .get3()
-            .update(&mut self.client, &mut self.user_dict);
+            .update(&mut self.client, &mut self.user_dict, &self.tasks);
         self.servers
             .get3()
-            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client);
+            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client, &self.tasks);
         match self.servers.get3() {
             Messages::Unloaded(_) => {
                 panic!("this should never happen!");
@@ -63,6 +63,12 @@ impl super::Parser {
     }
     pub fn parse_visual_messages(&mut self, input: KeyEvent) {
         let KeyEvent {code, modifiers: _} = input;
+        self.servers
+            .get3()
+            .update(&mut self.client, &mut self.user_dict, &self.tasks);
+        self.servers
+            .get3()
+            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client, &self.tasks);
         match code {
             KeyCode::Backspace | KeyCode::Esc | KeyCode::Enter => self.state = State::None,
             KeyCode::Left => {

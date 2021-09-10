@@ -31,6 +31,7 @@ mod servers;
 mod textbox;
 mod block_on;
 mod colors;
+mod download;
 struct DummyHandler;
 impl EventHandler for DummyHandler {}
 

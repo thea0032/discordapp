@@ -1,9 +1,9 @@
-use std::{collections::VecDeque, io::Stdout, sync::Arc};
+use std::{collections::VecDeque, io::Stdout, sync::{Arc, mpsc::Sender}};
 
 use chrono::Local;
 use crossterm::{queue, style::Print};
 
-use crate::{block_on::block_on, colors::Color};
+use crate::{block_on::block_on, colors::Color, download::Task};
 use serenity::{
     model::{
         channel::{Channel, Message, PrivateChannel},
@@ -44,14 +44,14 @@ impl Messages {
             Messages::Nonexistent => None,
         }
     }
-    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client) -> bool {
+    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client, tasks: &Sender<Task>) -> bool {
         match self {
             Messages::Unloaded(_) => false,
-            Messages::Loaded(val) => val.draw(grid, out, dict, client),
+            Messages::Loaded(val) => val.draw(grid, out, dict, client, tasks),
             Messages::Nonexistent => false,
         }
     }
-    pub fn update(&mut self, client: &mut Client, dict: &mut UserDict) {
+    pub fn update(&mut self, client: &mut Client, dict: &mut UserDict, tasks: &Sender<Task>) {
         if let Messages::Unloaded(v) = self {
             if let Some(val) = v.clone().guild() {
                 let (messages, more) = Parser::get_messages(client, val.clone());
@@ -60,6 +60,7 @@ impl Messages {
                     messages,
                     more,
                     dict,
+                    tasks,
                 ));
             } else if let Some(val) = v.clone().private() {
                 let (messages, more) = Parser::get_messages_p(client, val.clone());
@@ -68,6 +69,7 @@ impl Messages {
                     messages,
                     more,
                     dict,
+                    tasks,
                 ));
             } else {
                 panic!("We have encountered a new channel type somehow!")
@@ -75,8 +77,8 @@ impl Messages {
         }
     }
     /// Updates this to make sure any extra messages are included. Returns true if an update was performed, and false if no such update was.  
-    pub fn update_to_end(&mut self, client: &mut Client, dict: &mut UserDict) -> bool {
-        self.update(client, dict);
+    pub fn update_to_end(&mut self, client: &mut Client, dict: &mut UserDict, tasks: &Sender<Task>) -> bool {
+        self.update(client, dict, tasks);
         if let Messages::Loaded(v) = self {
             if v.more_after {
                 // gets the message id to use as a timestamp. If there are no messages, a default of zero is used. 
@@ -87,7 +89,7 @@ impl Messages {
                         val.messages(client.cache_and_http.http.clone(), |x| x.after(message_id)),
                     ) {
                         for message in messages.into_iter().rev() {
-                            v.add(message, None, dict);
+                            v.add(message, None, dict, tasks);
                         }
                     } else {
                         panic!("failed to get messages: ");
@@ -97,7 +99,7 @@ impl Messages {
                         val.messages(client.cache_and_http.http.clone(), |x| x.after(message_id)),
                     ) {
                         for message in messages.into_iter().rev() {
-                            v.add(message, None, dict);
+                            v.add(message, None, dict, tasks);
                         }
                     } else {
                         panic!("failed to get messages: ");
@@ -137,11 +139,12 @@ impl LoadedMessages {
         messages: Vec<Message>,
         more: bool,
         dict: &mut UserDict,
+        tasks: &Sender<Task>
     ) -> Self {
         let mut result = LoadedMessages::new(id);
         result.more_before = more;
         for line in messages.into_iter().rev() {
-            result.add(line, None, dict);
+            result.add(line, None, dict, tasks);
         }
         result
     }
@@ -232,7 +235,7 @@ impl LoadedMessages {
         self.unread = pos;
         self.flag = true;
     }
-    pub fn add(&mut self, msg: Message, pos: Option<usize>, dict: &mut UserDict) {
+    pub fn add(&mut self, msg: Message, pos: Option<usize>, dict: &mut UserDict, tasks: &Sender<Task>) {
         dict.contents
             .entry(msg.author.id)
             .or_insert_with(|| UserInfo {
@@ -259,7 +262,7 @@ impl LoadedMessages {
                 message = message.embed(embed);
             }
             for attachment in msg.attachments {
-                message = message.attachment(attachment);
+                message = message.attachment(attachment, tasks);
             }
             self.labels.insert(pos, message);
         } else {
@@ -274,7 +277,7 @@ impl LoadedMessages {
                 message = message.embed(embed);
             }
             for attachment in msg.attachments {
-                message = message.attachment(attachment);
+                message = message.attachment(attachment, tasks);
             }
             self.labels.push_back(message);
             if self.labels.len() > 2 && self.labels.len() - 2 == self.current {
@@ -293,16 +296,16 @@ impl LoadedMessages {
         self.labels.remove(pos);
         self.flag = true;
     }
-    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client) -> bool {
+    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client, tasks: &Sender<Task>) -> bool {
         if self.flag {
-            self.draw_real_new(grid, out, dict, client);
+            self.draw_real_new(grid, out, dict, client, tasks);
             self.flag = false;
             true
         } else {
             false
         }
     }
-    fn draw_real_new(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client) {
+    fn draw_real_new(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client, tasks: &Sender<Task>) {
         let mut counter = 0;
         let start = self.beginning_pos(grid.height());
         let sample = " ".graphemes(true).cycle();
@@ -380,11 +383,11 @@ impl LoadedMessages {
             let _ = queue!(out, Print(crate::ansi::RESET.to_string()));
         }
         if self.current < grid.height() / 2 {
-            self.update(client, dict);
+            self.update(client, dict, tasks);
         }
     }
     /// Provides an extra update towards the beginning
-    fn update(&mut self, client: &mut Client, dict: &mut UserDict) {
+    fn update(&mut self, client: &mut Client, dict: &mut UserDict, tasks: &Sender<Task>) {
         if self.more_before {
             let id = self.labels[0].id;
             if let Some(v) = self.id.clone().guild() {
@@ -396,7 +399,7 @@ impl LoadedMessages {
                             // TODO: Add "beginning of channel" message
                         }
                         for line in v.into_iter() {
-                            self.add(line, Some(0), dict);
+                            self.add(line, Some(0), dict, tasks);
                         }
                     },
                     Err(e) => {},

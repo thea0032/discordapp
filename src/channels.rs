@@ -4,12 +4,29 @@ use crossterm::{queue, style::Print};
 use serenity::model::channel::{Channel, GuildChannel};
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::colors::SimpleColor;
 use crate::{ansi, grid::Grid, messages::Messages};
 
 use crate::servers::Unread;
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChannelLabel {
+    name: String,
+    color: SimpleColor,
+}
+impl ChannelLabel {
+    pub fn new(name: String) -> ChannelLabel {
+        ChannelLabel {
+            name,
+            color: SimpleColor::new(),
+        }
+    }
+    pub fn to_string(&self) -> String {
+        self.name.clone() 
+    }
+}
 
 pub struct Channels {
-    pub labels: Vec<String>,
+    pub labels: Vec<ChannelLabel>,
     pub unread: Vec<Unread>,
     pub contents: Vec<Messages>,
     pub current: usize,
@@ -21,7 +38,7 @@ const DEFAULT: &str = "placeholder channel";
 impl Channels {
     pub fn new(id: Option<GuildChannel>) -> Self {
         Self {
-            labels: vec![DEFAULT.to_string()],
+            labels: vec![ChannelLabel::new(DEFAULT.to_string())],
             unread: vec![Unread::Read],
             contents: vec![Messages::new()],
             id,
@@ -61,11 +78,11 @@ impl Channels {
                 self.current += 1;
             }
             self.unread.insert(pos, Unread::Read);
-            self.labels.insert(pos, name);
+            self.labels.insert(pos, ChannelLabel::new(name));
             self.contents.insert(pos, Messages::with_channel(id));
         } else {
             self.unread.push(Unread::Read);
-            self.labels.push(name);
+            self.labels.push(ChannelLabel::new(name));
             self.contents.push(Messages::with_channel(id));
         }
         self.flag = true;
@@ -95,6 +112,14 @@ impl Channels {
         self.selected = spec;
         self.get()
     }
+    pub fn color(&mut self) {
+        self.flag = true;
+        self.labels[self.current].color.switch_color();
+    }
+    pub fn select_color(&mut self) {
+        self.flag = true;
+        self.labels[self.current].color.toggle();
+    }
     pub fn draw(&mut self, grid: &Grid, out: &mut Stdout) -> bool {
         if self.flag {
             self.draw_real(grid, out);
@@ -111,7 +136,8 @@ impl Channels {
             let val: String = self
                 .labels
                 .get(i)
-                .unwrap_or(&String::new())
+                .map(|x| x.to_string())
+                .unwrap_or(String::new())
                 .graphemes(true)
                 .chain(sample.clone())
                 .take(grid.len_channels() - 4)
@@ -131,6 +157,7 @@ impl Channels {
                     })
                 );
             }
+            let _ = queue!(out, Print(self.labels.get(i).map(|x| x.color.to_ansi_value()).unwrap_or(String::new())));
             if i == self.selected {
                 let _ = queue!(out, Print(ansi::HIGH_INTENSITY.to_string()));
             }

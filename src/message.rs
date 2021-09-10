@@ -1,11 +1,12 @@
 use std::collections::{HashMap, LinkedList};
 
 use chrono::{DateTime, Local};
-use crate::{block_on::block_on, colors::Color};
+use crate::{block_on::block_on, colors::Color, download::{Task, process}};
 use serenity::model::{
     channel::{Attachment, Embed},
     id::{MessageId, UserId},
 };
+use std::sync::mpsc::Sender;
 
 use crate::{
     ansi::COLORS,
@@ -63,16 +64,12 @@ impl LoadedMessage {
     pub fn last(&mut self) -> &mut LoadedMessageInstance {
         self.next.front_mut().unwrap_or(&mut self.content)
     }
-    pub fn attachment(mut self, v: Attachment) -> Self {
+    pub fn attachment(mut self, v: Attachment, send: &Sender<Task>) -> Self {
         let url = process(v.url.clone());
         let name = v.filename.clone();
-        let (location, should_download) = fs_write(&url).expect("FAILED");
+        let (location, should_download) = fs_write(&url);
         if should_download {
-            let result = tokio::runtime::Runtime::new()
-                .expect("Could not create a runtime!")
-                .block_on(v.download())
-                .unwrap_or("could not download!".to_string().into_bytes());
-            fs_write_2(result, &url);
+            send.send(Task::Download(v, location.clone())).expect("Could not send task!");
         }
         self.last().attachment_url.push(location);
         self.last().attachments.push(name);
@@ -134,12 +131,4 @@ impl UserDict {
             contents: HashMap::new(),
         }
     }
-}
-pub fn process(s: String) -> String {
-    let temp = s.replace("/", "").replace("\\", "").replace(":", "");
-    let temp = temp.split(".").collect::<Vec<_>>();
-    let mut temp = temp.iter().rev();
-    let first = temp.next().unwrap();
-    let second = temp.next().unwrap();
-    temp.next().unwrap().to_string() + second + "." + first
 }

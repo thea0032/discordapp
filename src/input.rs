@@ -14,7 +14,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{block_on::block_on, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load}, servers::Servers, textbox::Textbox};
+use crate::{block_on::block_on, download::{Product, Task}, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load}, servers::Servers, textbox::Textbox};
 use crossterm::{
     event::{read, Event, KeyCode, KeyEvent},
     execute, queue,
@@ -69,6 +69,8 @@ pub struct Parser {
     pub user_dict: UserDict,
     pub file_options: FileOptions,
     pub autosave: Autosave,
+    pub tasks: Sender<Task>,
+    pub products: Receiver<Product>
 }
 impl Parser {
     pub fn new(input_server: Receiver<Response>, client: Client) -> Parser {
@@ -87,6 +89,7 @@ impl Parser {
         let max_x = max_x as usize;
         let max_y = max_y as usize;
         let grid = Grid::new(max_x, max_y);
+        let (tasks, products) = crate::download::start();
         Parser {
             input_server,
             client,
@@ -100,12 +103,15 @@ impl Parser {
             user_dict: save.user_dict,
             file_options: save.file_options,
             autosave: Autosave::new(),
+            tasks,
+            products,
         }
     }
     pub fn complete_new(input_server: Receiver<Response>, client: Client) -> Parser {
         let (temp, input_user) = channel();
         grab(temp);
         let (max_x, max_y) = crossterm::terminal::size().expect("Cannot read size of terminal");
+        let (tasks, products) = crate::download::start();
         let mut parser = Parser {
             input_server,
             client,
@@ -119,6 +125,8 @@ impl Parser {
             user_dict: UserDict::new(),
             file_options: FileOptions::new(),
             autosave: Autosave::new(),
+            tasks,
+            products,
         };
         parser.network_update_first();
         parser
@@ -206,12 +214,12 @@ impl Parser {
                 if !self
                     .servers
                     .grab3(server, category, channel)
-                    .update_to_end(&mut self.client, &mut self.user_dict)
+                    .update_to_end(&mut self.client, &mut self.user_dict, &self.tasks)
                 {
                     self.servers
                         .grab3(server, category, channel)
                         .assume_loaded()
-                        .add(message, None, &mut self.user_dict);
+                        .add(message, None, &mut self.user_dict, &self.tasks);
                 }
             } else {
                 panic!("No channel/category found!");
@@ -290,7 +298,7 @@ impl Parser {
         self.servers.get2().draw(&self.grid, &mut self.out);
         self.servers
             .get3()
-            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client);
+            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client, &self.tasks);
         self.message_box.draw(
             self.grid.start_x as u16,
             self.grid.border_y as u16,
