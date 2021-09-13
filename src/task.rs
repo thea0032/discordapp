@@ -7,12 +7,11 @@ use crate::{DummyHandler, block_on::{self, block_on}, file::{fs_write_2}};
 pub enum MessageSearch {
     Before(u64),
     After(u64),
-    None,
 }
 pub enum Task {
     Download(Attachment, String),
     GetMessages(Channel, MessageSearch),
-    Wait,
+    Mark,
     Kill,
 }
 impl Task {
@@ -29,22 +28,30 @@ impl Task {
                         let v = ch.messages(client.cache_and_http.http.clone(), |x| match search {
                             MessageSearch::Before(msg) => x.before(msg),
                             MessageSearch::After(msg) => x.after(msg),
-                            MessageSearch::None => x,
                         }).await.unwrap_or(vec![]);
-                        Some(Product::Messages(v, channel.id()))
+                        if matches!(search, MessageSearch::Before(_)) {
+                            Some(Product::MessagesBefore(v, channel.id()))
+                        } else {
+                            Some(Product::MessagesAfter(v, channel.id()))
+                        }
                     },
                     Channel::Private(ch) => {
                         let v = ch.messages(client.cache_and_http.http.clone(), |x| match search {
                             MessageSearch::Before(msg) => x.before(msg),
                             MessageSearch::After(msg) => x.after(msg),
-                            MessageSearch::None => x,
                         }).await.unwrap_or(vec![]);
-                        Some(Product::Messages(v, channel.id()))
+                        if matches!(search, MessageSearch::Before(_)) {
+                            Some(Product::MessagesBefore(v, channel.id()))
+                        } else {
+                            Some(Product::MessagesAfter(v, channel.id()))
+                        }
                     }
                     Channel::Category(_) => panic!("Cannot get messages from a category!"),
                     _ => panic!()
                 }
-            }
+            },
+            Task::Mark => Some(Product::CanSave),
+            Task::Kill => Some(Product::Killed),
             _ => None
         }
     }
@@ -60,7 +67,8 @@ pub fn process(s: String) -> String {
 }
 
 pub enum Product {
-    Messages(Vec<Message>, ChannelId),
+    MessagesBefore(Vec<Message>, ChannelId),
+    MessagesAfter(Vec<Message>, ChannelId),
     CanSave,
     Killed,
 }
@@ -88,13 +96,11 @@ fn task_init(recv: Receiver<Task>, send: Sender<Product>, client: Client) -> Opt
         }
         let final_future = join_all(queue);
         let final_res = block_on(final_future);
-        for line in final_res {
-            if let Some(line) = line {
-                let kill = matches!(line, Product::Killed);
-                send.send(line).ok()?;
-                if kill {
-                    break 'outer;
-                }
+        for line in final_res.into_iter().map(|x| x.into_iter()).flatten() {
+            let should_kill = matches!(line, Product::Killed);
+            send.send(line).ok()?;
+            if should_kill {
+                break 'outer;
             }
         }
     }

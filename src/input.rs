@@ -3,18 +3,12 @@ mod channels;
 mod messages;
 mod servers;
 
-use std::{
-    collections::HashMap,
-    io::{stdout, Stdout},
-    sync::{
+use std::{collections::HashMap, io::{stdout, Stdout}, slice::Iter, sync::{
         mpsc::{channel, Receiver, Sender},
         Arc,
-    },
-    thread::{spawn, JoinHandle},
-    time::Duration,
-};
+    }, thread::{spawn, JoinHandle}, time::Duration};
 
-use crate::{block_on::block_on, task::{Product, Task}, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load}, servers::Servers, textbox::Textbox};
+use crate::{block_on::block_on, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load, save}, servers::Servers, task::{Product, Task}, textbox::Textbox};
 use crossterm::{
     event::{read, Event, KeyCode, KeyEvent},
     execute, queue,
@@ -149,20 +143,27 @@ impl Parser {
     }
     pub fn start_real(mut self) -> Self {
         'outer: loop {
-            while let Ok(val) = self.io.input_server.try_recv() {
-                self.handle_response(val);
+            std::thread::sleep(Duration::from_millis(10));
+            let products: Vec<Product> = self.io.products.try_iter().collect();
+            for product in products {
+                self.handle_product(product);
             }
-            while let Ok(val) = self.io.input_user.recv_timeout(Duration::from_millis(50)) {
-                if self.handle_event(val) {
+            let events:Vec<Event> = self.io.input_user.try_iter().collect();
+            for line in events {
+                if self.handle_event(line) {
                     break 'outer;
                 }
+            }
+            let responses:Vec<Response> = self.io.input_server.try_iter().collect();
+            for line in responses {
+                self.handle_response(line);
             }
             if self.int.state != State::Quit {
                 self.draw();
             }
-            self.try_save();
+            self.save_state();
         }
-        self.force_save();
+        self.end_state();
         self
     }
     pub fn handle_response(&mut self, resp: Response) {
@@ -197,14 +198,41 @@ impl Parser {
         }
         false
     }
-    pub fn try_save(&mut self) {
+    /// Returns whether a save can happen. 
+    pub fn handle_product(&mut self, p: Product) -> bool {
+        match p {
+            Product::MessagesBefore(content, context) => todo!(),
+            Product::MessagesAfter(content, context) => todo!(),
+            Product::CanSave | Product::Killed =>return true,
+        }
+        false
+    }
+    pub fn save_state(&mut self) {
         if self.int.autosave.should_save() {
-            self.io.tasks.send(Task::Wait);
-            self.int.autosave = Autosave::save(self);
+            self.io.tasks.send(Task::Mark).expect("Failed to mark!");
+            loop {
+                let products: Vec<Product> = self.io.products.try_iter().collect();
+                for product in products {
+                    if self.handle_product(product) {
+                        save(&self).expect("Could not save!");
+                        self.int.autosave = Autosave::save(self);
+                    }
+                }
+            }
         }
     }
-    pub fn force_save(&mut self) {
-        self.int.autosave = Autosave::save(self);
+    pub fn end_state(&mut self) {
+        self.io.tasks.send(Task::Kill).expect("Failed to mark!");
+        loop {
+            let products: Vec<Product> = self.io.products.try_iter().collect();
+            for product in products {
+                if self.handle_product(product) {
+                    save(&self).expect("Could not save!");
+                    self.int.autosave = Autosave::save(self);
+                }
+            }
+        }
+
     }
     fn add_message(&mut self, message: Message) {
         let channel = message.channel_id;
