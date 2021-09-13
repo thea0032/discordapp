@@ -3,7 +3,7 @@ use std::{collections::VecDeque, io::Stdout, sync::{Arc, mpsc::Sender}};
 use chrono::Local;
 use crossterm::{queue, style::Print};
 
-use crate::{block_on::block_on, colors::Color, download::Task};
+use crate::{block_on::block_on, colors::Color, task::{MessageSearch, Task}};
 use serenity::{
     model::{
         channel::{Channel, Message, PrivateChannel},
@@ -80,32 +80,12 @@ impl Messages {
     pub fn update_to_end(&mut self, client: &mut Client, dict: &mut UserDict, tasks: &Sender<Task>) -> bool {
         self.update(client, dict, tasks);
         if let Messages::Loaded(v) = self {
-            if v.more_after {
+            if matches!(v.after, LoadingState::Unloaded) {
                 // gets the message id to use as a timestamp. If there are no messages, a default of zero is used. 
                 let message_id = v.labels.back().and_then(|x| Some(x.id.0)).unwrap_or(0);
                 let ch = v.id.clone();
-                if let Some(val) = ch.clone().private() {
-                    if let Ok(messages) = block_on(
-                        val.messages(client.cache_and_http.http.clone(), |x| x.after(message_id)),
-                    ) {
-                        for message in messages.into_iter().rev() {
-                            v.add(message, None, dict, tasks);
-                        }
-                    } else {
-                        panic!("failed to get messages: ");
-                    }
-                } else if let Some(val) = ch.guild() {
-                    if let Ok(messages) = block_on(
-                        val.messages(client.cache_and_http.http.clone(), |x| x.after(message_id)),
-                    ) {
-                        for message in messages.into_iter().rev() {
-                            v.add(message, None, dict, tasks);
-                        }
-                    } else {
-                        panic!("failed to get messages: ");
-                    }
-                }
-                v.more_after = false;
+                tasks.send(Task::GetMessages(ch, MessageSearch::After(message_id)));
+                v.after = LoadingState::Loading;
                 true
             } else {
                 false
@@ -122,6 +102,12 @@ impl Messages {
         }
     }
 }
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub enum LoadingState {
+    Finished,
+    Unloaded,
+    Loading
+}
 pub struct LoadedMessages {
     pub labels: VecDeque<LoadedMessage>, // main vec contains messages, other vec contains lines
     pub unread: usize,              // the first unread message
@@ -129,8 +115,8 @@ pub struct LoadedMessages {
     pub current_in_message: usize,
     pub selected: usize,
     pub id: Channel,
-    pub more_before: bool,
-    pub more_after: bool,
+    pub before: LoadingState,
+    pub after: LoadingState,
     pub flag: bool,
 }
 impl LoadedMessages {
@@ -142,7 +128,7 @@ impl LoadedMessages {
         tasks: &Sender<Task>
     ) -> Self {
         let mut result = LoadedMessages::new(id);
-        result.more_before = more;
+        result.before = if more {LoadingState::Unloaded} else {LoadingState::Finished};
         for line in messages.into_iter().rev() {
             result.add(line, None, dict, tasks);
         }
@@ -157,8 +143,8 @@ impl LoadedMessages {
             flag: true,
             current_in_message: 0,
             id,
-            more_before: false,
-            more_after: false,
+            before: LoadingState::Finished,
+            after: LoadingState::Finished,
         }
     }
     pub fn flag(&mut self) {
@@ -388,23 +374,10 @@ impl LoadedMessages {
     }
     /// Provides an extra update towards the beginning
     fn update(&mut self, client: &mut Client, dict: &mut UserDict, tasks: &Sender<Task>) {
-        if self.more_before {
+        if matches!(self.before, LoadingState::Unloaded) {
             let id = self.labels[0].id;
-            if let Some(v) = self.id.clone().guild() {
-                match block_on(
-                v.messages(Arc::clone(&client.cache_and_http.http), |x| x.before(id))) {
-                    Ok(v) => {
-                        if v.len() == 0 {
-                            self.more_before = false;
-                            // TODO: Add "beginning of channel" message
-                        }
-                        for line in v.into_iter() {
-                            self.add(line, Some(0), dict, tasks);
-                        }
-                    },
-                    Err(e) => {},
-                }
-            }
+            let channel = self.id.clone();
+            tasks.send(Task::GetMessages(channel, MessageSearch::Before(id.0)));
         }
     }
     fn beginning_pos(&self, height: usize) -> usize {

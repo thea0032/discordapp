@@ -9,7 +9,7 @@ impl super::Parser {
         let KeyEvent { code, modifiers: _ } = input;
         match code {
             KeyCode::Right => {
-                self.grid.context = super::Context::Category;
+                self.int.grid.context = super::Context::Category;
                 self.servers.flag();
                 self.servers.get().flag();
             }
@@ -24,10 +24,10 @@ impl super::Parser {
                 self.reset_all();
             }
             KeyCode::Char('t') => {
-                self.state = State::Message;
+                self.int.state = State::Message;
             }
             KeyCode::Char('q') => {
-                self.state = State::Quit;
+                self.int.state = State::Quit;
                 self.parse_quit_start();
             }
             _ => {}
@@ -36,9 +36,9 @@ impl super::Parser {
     pub fn parse_visual_servers(&mut self, input: KeyEvent) {
         let KeyEvent {code, ..} = input;
         match code {
-            KeyCode::Backspace | KeyCode::Delete | KeyCode::Esc => self.state = State::None,
+            KeyCode::Backspace | KeyCode::Delete | KeyCode::Esc => self.int.state = State::None,
             KeyCode::Right => {
-                self.grid.context = super::Context::Category;
+                self.int.grid.context = super::Context::Category;
                 self.servers.flag();
                 self.servers.get().flag();
             }

@@ -7,12 +7,12 @@ impl super::Parser {
         let KeyEvent { code, modifiers: _ } = input;
         match code {
             KeyCode::Left => {
-                self.grid.context = super::Context::Server;
+                self.int.grid.context = super::Context::Server;
                 self.servers.get().flag();
                 self.servers.flag();
             }
             KeyCode::Right => {
-                self.grid.context = super::Context::Channel;
+                self.int.grid.context = super::Context::Channel;
                 self.servers.get().flag();
                 self.servers.get2().flag();
             }
@@ -27,10 +27,10 @@ impl super::Parser {
                 self.reset_all();
             }
             KeyCode::Char('t') => {
-                self.state = State::Message;
+                self.int.state = State::Message;
             }
             KeyCode::Char('f') => {
-                self.state = State::Filter;
+                self.int.state = State::Filter;
             }
             _ => {}
         }
@@ -38,14 +38,14 @@ impl super::Parser {
     pub fn parse_visual_categories(&mut self, input: KeyEvent) {
         let KeyEvent { code, modifiers: _ } = input;
         match code {
-            KeyCode::Backspace | KeyCode::Delete | KeyCode::Esc => self.state = State::None,
+            KeyCode::Backspace | KeyCode::Delete | KeyCode::Esc => self.int.state = State::None,
             KeyCode::Left => {
-                self.grid.context = super::Context::Server;
+                self.int.grid.context = super::Context::Server;
                 self.servers.get().flag();
                 self.servers.flag();
             }
             KeyCode::Right => {
-                self.grid.context = super::Context::Channel;
+                self.int.grid.context = super::Context::Channel;
                 self.servers.get().flag();
                 self.servers.get2().flag();
             }

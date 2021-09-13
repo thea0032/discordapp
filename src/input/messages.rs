@@ -9,45 +9,45 @@ impl super::Parser {
         let KeyEvent { code, modifiers: _ } = input;
         self.servers
             .get3()
-            .update(&mut self.client, &mut self.user_dict, &self.tasks);
+            .update(&mut self.io.client, &mut self.int.user_dict, &self.io.tasks);
         self.servers
             .get3()
-            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client, &self.tasks);
+            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &mut self.io.client, &self.io.tasks);
         match self.servers.get3() {
             Messages::Unloaded(_) => {
                 panic!("this should never happen!");
             }
             Messages::Loaded(_) => {}
             _ => {
-                self.grid.context = Context::Channel;
+                self.int.grid.context = Context::Channel;
                 self.reset_all();
                 return;
             }
         }
         match code {
             KeyCode::Left => {
-                self.grid.context = Context::Channel;
+                self.int.grid.context = Context::Channel;
                 self.servers.get3().assume_loaded().flag();
                 self.servers.get2().flag();
             }
             KeyCode::Up => {
-                self.servers.get3().assume_loaded().up(&self.grid);
+                self.servers.get3().assume_loaded().up(&self.int.grid);
             }
             KeyCode::Down => {
-                self.servers.get3().assume_loaded().down(&self.grid);
+                self.servers.get3().assume_loaded().down(&self.int.grid);
             }
             KeyCode::Enter => {
                 self.servers.get3().assume_loaded().select();
                 self.reset_all();
             }
             KeyCode::Char('t') => {
-                self.state = State::Message;
+                self.int.state = State::Message;
             }
             KeyCode::Char('b') => {
                 self.servers.get3().assume_loaded().back();
             }
             KeyCode::Char('v') => {
-                self.state = State::Visual;
+                self.int.state = State::Visual;
             }
             KeyCode::Char('m') => {
                 self.message_person();
@@ -56,7 +56,7 @@ impl super::Parser {
                 self.servers
                     .get3()
                     .assume_loaded()
-                    .open(&self.file_options, &self.grid);
+                    .open(&self.int.file_options, &self.int.grid);
             }
             _ => {}
         }
@@ -65,26 +65,26 @@ impl super::Parser {
         let KeyEvent {code, modifiers: _} = input;
         self.servers
             .get3()
-            .update(&mut self.client, &mut self.user_dict, &self.tasks);
+            .update(&mut self.io.client, &mut self.int.user_dict, &self.io.tasks);
         self.servers
             .get3()
-            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client, &self.tasks);
+            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &mut self.io.client, &self.io.tasks);
         match code {
-            KeyCode::Backspace | KeyCode::Esc | KeyCode::Enter => self.state = State::None,
+            KeyCode::Backspace | KeyCode::Esc | KeyCode::Enter => self.int.state = State::None,
             KeyCode::Left => {
-                self.grid.context = Context::Channel;
+                self.int.grid.context = Context::Channel;
                 self.servers.get3().assume_loaded().flag();
                 self.servers.get2().flag();
             }
             KeyCode::Up => {
-                self.servers.get3().assume_loaded().up(&self.grid);
+                self.servers.get3().assume_loaded().up(&self.int.grid);
             }
             KeyCode::Down => {
-                self.servers.get3().assume_loaded().down(&self.grid);
+                self.servers.get3().assume_loaded().down(&self.int.grid);
             }
-            KeyCode::Char('r') => self.servers.get3().assume_loaded().red(&mut self.user_dict),
-            KeyCode::Char('g') => self.servers.get3().assume_loaded().green(&mut self.user_dict),
-            KeyCode::Char('b') => self.servers.get3().assume_loaded().blue(&mut self.user_dict),
+            KeyCode::Char('r') => self.servers.get3().assume_loaded().red(&mut self.int.user_dict),
+            KeyCode::Char('g') => self.servers.get3().assume_loaded().green(&mut self.int.user_dict),
+            KeyCode::Char('b') => self.servers.get3().assume_loaded().blue(&mut self.int.user_dict),
             _ => {}
         }
     }

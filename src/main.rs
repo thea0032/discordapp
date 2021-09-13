@@ -31,7 +31,7 @@ mod servers;
 mod textbox;
 mod block_on;
 mod colors;
-mod download;
+mod task;
 struct DummyHandler;
 impl EventHandler for DummyHandler {}
 
@@ -92,7 +92,8 @@ fn main() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let future = std::thread::spawn(move || runtime.block_on(client.start()));
     let _ = execute!(stdout(), terminal::Clear(ClearType::All)).expect("fatal error: "); // clears the terminal
-    let parser = input::Parser::new(recv, client2);
+    let (tasks, products) = crate::task::start(&token);
+    let parser = input::Parser::new(recv, client2, tasks, products);
     enable_raw_mode().expect("fatal error: ");
     let v = parser.start(); // starts on a new thread
     v.join().expect("fatal error: ");

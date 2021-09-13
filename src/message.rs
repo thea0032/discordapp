@@ -1,7 +1,7 @@
 use std::collections::{HashMap, LinkedList};
 
 use chrono::{DateTime, Local};
-use crate::{block_on::block_on, colors::Color, download::{Task, process}};
+use crate::{block_on::block_on, colors::Color, task::{Task, process}};
 use serenity::model::{
     channel::{Attachment, Embed},
     id::{MessageId, UserId},

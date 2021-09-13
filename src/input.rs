@@ -14,7 +14,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{block_on::block_on, download::{Product, Task}, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load}, servers::Servers, textbox::Textbox};
+use crate::{block_on::block_on, task::{Product, Task}, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load}, servers::Servers, textbox::Textbox};
 use crossterm::{
     event::{read, Event, KeyCode, KeyEvent},
     execute, queue,
@@ -56,77 +56,90 @@ pub enum Context {
 pub enum Response {
     Message(client::Context, Message),
 }
-pub struct Parser {
+pub struct ParserIO {
     pub input_server: Receiver<Response>,
     pub client: Client,
     pub input_user: Receiver<Event>,
-    pub servers: Servers,
-    pub state: State,
-    pub grid: Grid,
     pub out: Stdout,
-    pub message_box: Textbox,
-    pub temp_box: Textbox,
-    pub user_dict: UserDict,
-    pub file_options: FileOptions,
-    pub autosave: Autosave,
     pub tasks: Sender<Task>,
     pub products: Receiver<Product>
 }
+pub struct ParserInternal {
+    pub state: State,
+    pub grid: Grid,
+    pub user_dict: UserDict,
+    pub file_options: FileOptions,
+    pub autosave: Autosave,
+}
+pub struct Parser {
+    pub io: ParserIO,
+    pub int: ParserInternal,
+    pub servers: Servers,
+    pub message_box: Textbox,
+    pub temp_box: Textbox,
+}
 impl Parser {
-    pub fn new(input_server: Receiver<Response>, client: Client) -> Parser {
-        match load(input_server, client) {
+    pub fn new(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, products: Receiver<Product>) -> Parser {
+        match load(input_server, client, tasks, products) {
             Ok(val) => val,
-            Err(Return(why, input_server, client)) => {
+            Err(Return(why, input_server, client, tasks, products)) => {
                 get_str(&(why + " press enter to load a new save, or ctrl+c to exit and try again."));
-                Self::complete_new(input_server, client)
+                Self::complete_new(input_server, client, tasks, products)
             },
         }
     }
-    pub fn from_save(save: ParserSave, input_server: Receiver<Response>, client: Client) -> Parser {
+    pub fn from_save(save: ParserSave, input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, products: Receiver<Product>) -> Parser {
         let (temp, input_user) = channel();
         grab(temp);
         let (max_x, max_y) = crossterm::terminal::size().expect("Cannot read size of terminal");
         let max_x = max_x as usize;
         let max_y = max_y as usize;
         let grid = Grid::new(max_x, max_y);
-        let (tasks, products) = crate::download::start();
         Parser {
-            input_server,
-            client,
-            state: State::None,
+            io: ParserIO {
+                input_server,
+                client,
+                out: stdout(),
+                tasks,
+                products,
+                input_user,
+            },
+            int: ParserInternal {
+                state: State::None,
+                grid,
+                user_dict: save.user_dict,
+                autosave: Autosave::new(),
+                file_options: save.file_options,
+            },
             servers: save.servers.reload(),
-            input_user,
-            grid,
-            out: stdout(),
             message_box: Textbox::new(max_x),
             temp_box: Textbox::new(max_x),
-            user_dict: save.user_dict,
-            file_options: save.file_options,
-            autosave: Autosave::new(),
-            tasks,
-            products,
         }
     }
-    pub fn complete_new(input_server: Receiver<Response>, client: Client) -> Parser {
-        let (temp, input_user) = channel();
+    pub fn complete_new(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, products: Receiver<Product>) -> Parser {
+        let (temp, input_user) = channel ();
         grab(temp);
         let (max_x, max_y) = crossterm::terminal::size().expect("Cannot read size of terminal");
-        let (tasks, products) = crate::download::start();
+        let grid = Grid::new(max_x as usize, max_y as usize);
         let mut parser = Parser {
-            input_server,
-            client,
-            state: State::None,
+            io: ParserIO {
+                input_server,
+                client,
+                out: stdout(),
+                tasks,
+                products,
+                input_user,
+            },
+            int: ParserInternal {
+                state: State::None,
+                grid,
+                user_dict: UserDict::new(),
+                autosave: Autosave::new(),
+                file_options: FileOptions::new(),
+            },
             servers: Servers::new(),
-            input_user,
-            grid: Grid::new(max_x as usize, max_y as usize),
-            out: stdout(),
             message_box: Textbox::new(max_x as usize),
             temp_box: Textbox::new(max_x as usize),
-            user_dict: UserDict::new(),
-            file_options: FileOptions::new(),
-            autosave: Autosave::new(),
-            tasks,
-            products,
         };
         parser.network_update_first();
         parser
@@ -136,39 +149,15 @@ impl Parser {
     }
     pub fn start_real(mut self) -> Self {
         'outer: loop {
-            while let Ok(val) = self.input_server.try_recv() {
-                match val {
-                    Response::Message(_, message) => {
-                        self.add_message(message);
-                    }
+            while let Ok(val) = self.io.input_server.try_recv() {
+                self.handle_response(val);
+            }
+            while let Ok(val) = self.io.input_user.recv_timeout(Duration::from_millis(50)) {
+                if self.handle_event(val) {
+                    break 'outer;
                 }
             }
-            while let Ok(val) = self.input_user.recv_timeout(Duration::from_millis(50)) {
-                match val {
-                    Event::Key(key) => match self.state {
-                        State::None => self.parse_none(key),
-                        State::Filter => {}
-                        State::Message => self.parse_message(key),
-                        State::Quit => {
-                            if self.parse_quit(key) {
-                                // this unwrap is safe
-                                break 'outer;
-                            }
-                        }
-                        State::Visual => self.parse_visual(key),
-                    },
-                    Event::Mouse(_) => todo!(),
-                    Event::Resize(length, height) => {
-                        self.grid.update(
-                            self.message_box.lines().min(self.grid.max_box_len),
-                            height as usize,
-                            length as usize,
-                        );
-                        self.reset_all();
-                    }
-                }
-            }
-            if self.state != State::Quit {
+            if self.int.state != State::Quit {
                 self.draw();
             }
             self.try_save();
@@ -176,13 +165,46 @@ impl Parser {
         self.force_save();
         self
     }
+    pub fn handle_response(&mut self, resp: Response) {
+        match resp {
+            Response::Message(_, message) => {
+                self.add_message(message);
+            }
+        }
+    }
+    pub fn handle_event(&mut self, e: Event) -> bool {
+        match e {
+            Event::Key(key) => match self.int.state {
+                State::None => self.parse_none(key),
+                State::Filter => {}
+                State::Message => self.parse_message(key),
+                State::Quit => {
+                    if self.parse_quit(key) {
+                        return true
+                    }
+                }
+                State::Visual => self.parse_visual(key),
+            },
+            Event::Mouse(_) => todo!(),
+            Event::Resize(length, height) => {
+                self.int.grid.update(
+                    self.message_box.lines().min(self.int.grid.max_box_len),
+                    height as usize,
+                    length as usize,
+                );
+                self.reset_all();
+            }
+        }
+        false
+    }
     pub fn try_save(&mut self) {
-        if self.autosave.should_save() {
-            self.autosave = Autosave::save(self);
+        if self.int.autosave.should_save() {
+            self.io.tasks.send(Task::Wait);
+            self.int.autosave = Autosave::save(self);
         }
     }
     pub fn force_save(&mut self) {
-        self.autosave = Autosave::save(self);
+        self.int.autosave = Autosave::save(self);
     }
     fn add_message(&mut self, message: Message) {
         let channel = message.channel_id;
@@ -214,12 +236,12 @@ impl Parser {
                 if !self
                     .servers
                     .grab3(server, category, channel)
-                    .update_to_end(&mut self.client, &mut self.user_dict, &self.tasks)
+                    .update_to_end(&mut self.io.client, &mut self.int.user_dict, &self.io.tasks)
                 {
                     self.servers
                         .grab3(server, category, channel)
                         .assume_loaded()
-                        .add(message, None, &mut self.user_dict, &self.tasks);
+                        .add(message, None, &mut self.int.user_dict, &self.io.tasks);
                 }
             } else {
                 panic!("No channel/category found!");
@@ -229,7 +251,7 @@ impl Parser {
         }
     }
     fn parse_none(&mut self, input: KeyEvent) {
-        match self.grid.context {
+        match self.int.grid.context {
             Context::Server => self.parse_none_server(input),
             Context::Category => self.parse_none_category(input),
             Context::Channel => self.parse_none_channel(input),
@@ -244,14 +266,14 @@ impl Parser {
             }
             KeyCode::Enter => {
                 let message = &json!({"content": self.message_box.flush()});
-                self.grid.update_msg(1);
+                self.int.grid.update_msg(1);
                 if let Some(val) = self.servers.get3().id().and_then(|x| x.guild()) {
                     if let Err(why) = block_on(self.http().send_message(val.id.0, message)) {
                         let v = why.to_string();
                         self.temp_box.flush();
                         self.temp_box.add_to_end(vec![v]);
-                        let temp = (self.grid.end_y - self.temp_box.lines()) as u16;
-                        self.temp_box.draw(0, temp, &mut self.out, false);
+                        let temp = (self.int.grid.end_y - self.temp_box.lines()) as u16;
+                        self.temp_box.draw(0, temp, &mut self.io.out, false);
                     }
                 }
                 if let Some(val) = self.servers.get3().id().and_then(|x| x.private()) {
@@ -259,8 +281,8 @@ impl Parser {
                         let v = why.to_string();
                         self.temp_box.flush();
                         self.temp_box.add_to_end(vec![v]);
-                        let temp = (self.grid.end_y - self.temp_box.lines()) as u16;
-                        self.temp_box.draw(0, temp, &mut self.out, false);
+                        let temp = (self.int.grid.end_y - self.temp_box.lines()) as u16;
+                        self.temp_box.draw(0, temp, &mut self.io.out, false);
                     }
                 }
                 self.reset_all();
@@ -276,7 +298,7 @@ impl Parser {
                 self.message_box.add_char(val);
             }
             KeyCode::Esc => {
-                self.state = State::None;
+                self.int.state = State::None;
             }
             KeyCode::Tab => {
                 self.message_box.newline();
@@ -286,38 +308,38 @@ impl Parser {
     }
     fn draw(&mut self) {
         if self.message_box.flag {
-            let prev = self.grid.border_y;
-            self.grid.border_y =
-                self.grid.end_y - self.message_box.lines().min(self.grid.max_box_len).max(1);
-            if self.grid.border_y != prev {
+            let prev = self.int.grid.border_y;
+            self.int.grid.border_y =
+                self.int.grid.end_y - self.message_box.lines().min(self.int.grid.max_box_len).max(1);
+            if self.int.grid.border_y != prev {
                 self.flag_all();
             }
         }
-        self.servers.draw(&self.grid, &mut self.out);
-        self.servers.get().draw(&self.grid, &mut self.out);
-        self.servers.get2().draw(&self.grid, &mut self.out);
+        self.servers.draw(&self.int.grid, &mut self.io.out);
+        self.servers.get().draw(&self.int.grid, &mut self.io.out);
+        self.servers.get2().draw(&self.int.grid, &mut self.io.out);
         self.servers
             .get3()
-            .draw(&self.grid, &mut self.out, &mut self.user_dict, &mut self.client, &self.tasks);
+            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &mut self.io.client, &self.io.tasks);
         self.message_box.draw(
-            self.grid.start_x as u16,
-            self.grid.border_y as u16,
-            &mut self.out,
+            self.int.grid.start_x as u16,
+            self.int.grid.border_y as u16,
+            &mut self.io.out,
             true,
         );
-        let _ = execute!(self.out);
+        let _ = execute!(self.io.out);
     }
     fn parse_quit_start(&mut self) {
-        self.temp_box = Textbox::new(self.grid.total_across());
+        self.temp_box = Textbox::new(self.int.grid.total_across());
         self.temp_box
             .add_to_end(vec!["Are you sure you want to quit?".to_string()]);
         self.temp_box.draw(
-            self.grid.start_x as u16,
-            self.grid.border_y as u16,
-            &mut self.out,
+            self.int.grid.start_x as u16,
+            self.int.grid.border_y as u16,
+            &mut self.io.out,
             true,
         );
-        let _ = execute!(self.out);
+        let _ = execute!(self.io.out);
     }
     fn parse_quit(&mut self, input: KeyEvent) -> bool {
         match input.code {
@@ -325,22 +347,22 @@ impl Parser {
                 true
             }
             _ => {
-                self.state = State::None;
+                self.int.state = State::None;
                 self.temp_box.flush();
                 self.temp_box.draw(
-                    self.grid.start_x as u16,
-                    self.grid.border_y as u16,
-                    &mut self.out,
+                    self.int.grid.start_x as u16,
+                    self.int.grid.border_y as u16,
+                    &mut self.io.out,
                     true,
                 );
-                let _ = queue!(self.out, Clear(ClearType::CurrentLine));
+                let _ = queue!(self.io.out, Clear(ClearType::CurrentLine));
                 self.message_box.draw(
-                    self.grid.start_x as u16,
-                    self.grid.border_y as u16,
-                    &mut self.out,
+                    self.int.grid.start_x as u16,
+                    self.int.grid.border_y as u16,
+                    &mut self.io.out,
                     true,
                 );
-                let _ = execute!(self.out);
+                let _ = execute!(self.io.out);
                 false
             }
         }
@@ -361,7 +383,7 @@ impl Parser {
         self.message_box.flag();
     }
     fn http(&self) -> Arc<Http> {
-        Arc::clone(&self.client.cache_and_http.http)
+        Arc::clone(&self.io.client.cache_and_http.http)
     }
     fn network_update_first(&mut self) {
         let v = block_on(
@@ -469,7 +491,7 @@ impl Parser {
             .servers
             .get3()
             .assume_loaded()
-            .message_person(&mut self.client)
+            .message_person(&mut self.io.client)
         {
             let pos = self
                 .servers
@@ -487,7 +509,7 @@ impl Parser {
         }
     }
     pub fn parse_visual(&mut self, event: KeyEvent) {
-        match self.grid.context {
+        match self.int.grid.context {
             Context::Server => self.parse_visual_servers(event),
             Context::Category => self.parse_visual_categories(event),
             Context::Channel => self.parse_visual_channels(event),

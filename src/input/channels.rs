@@ -7,11 +7,11 @@ impl super::Parser {
         let KeyEvent { code, modifiers: _ } = input;
         match code {
             KeyCode::Left => {
-                self.grid.context = super::Context::Category;
+                self.int.grid.context = super::Context::Category;
                 self.reset_all();
             }
             KeyCode::Right => {
-                self.grid.context = super::Context::Message;
+                self.int.grid.context = super::Context::Message;
                 self.reset_all();
             }
             KeyCode::Up => {
@@ -25,7 +25,7 @@ impl super::Parser {
                 self.reset_all();
             }
             KeyCode::Char('t') => {
-                self.state = State::Message;
+                self.int.state = State::Message;
             }
             _ => {}
         }
@@ -34,11 +34,11 @@ impl super::Parser {
         let KeyEvent { code, ..}: KeyEvent = input;
         match code {
             KeyCode::Left => {
-                self.grid.context = super::Context::Category;
+                self.int.grid.context = super::Context::Category;
                 self.reset_all();
             }
             KeyCode::Right => {
-                self.grid.context = super::Context::Message;
+                self.int.grid.context = super::Context::Message;
                 self.reset_all();
             }
             KeyCode::Up => {
@@ -53,7 +53,7 @@ impl super::Parser {
             }
             KeyCode::Char('c') => self.servers.get2().color(),
             KeyCode::Char('s') => self.servers.get2().select_color(),
-            KeyCode::Esc | KeyCode::Delete | KeyCode::Backspace => self.state = State::None,
+            KeyCode::Esc | KeyCode::Delete | KeyCode::Backspace => self.int.state = State::None,
             _ => {},
         }
     }

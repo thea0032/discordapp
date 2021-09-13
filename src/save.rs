@@ -1,25 +1,25 @@
-use std::{collections::VecDeque, fs, io::stdout, sync::mpsc::{Receiver, channel}, time::{Duration, Instant}};
+use std::{collections::VecDeque, fs, io::stdout, sync::mpsc::{Receiver, Sender, channel}, time::{Duration, Instant}};
 
-use crossterm::event::Event;
+use crate::messages::LoadingState;
 use serenity::{Client, model::{
     channel::{Channel, GuildChannel},
     id::{GuildId},
 }};
 use serde_json::to_string;
 use serde_json::from_str;
-use crate::{categories::{Categories, CategoryLabel}, channels::{ChannelLabel, Channels}, file::FileOptions, grid::Grid, input::{Parser, Response, State}, message::{LoadedMessage, UserDict}, messages::{LoadedMessages, Messages}, servers::{ServerLabel, Servers, Unread}, textbox::Textbox};
+use crate::{categories::{Categories, CategoryLabel}, channels::{ChannelLabel, Channels}, file::FileOptions, grid::Grid, input::{Parser, Response, State}, message::{LoadedMessage, UserDict}, messages::{LoadedMessages, Messages}, servers::{ServerLabel, Servers, Unread}, task::{Product, Task}, textbox::Textbox};
 
 pub const PATH:&str = "save.ignore";
 
-pub struct Return(pub String, pub Receiver<Response>, pub Client);
-pub fn load(input_server: Receiver<Response>, client: Client) -> Result<Parser, Return> {
+pub struct Return(pub String, pub Receiver<Response>, pub Client, pub Sender<Task>, pub Receiver<Product>);
+pub fn load(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, products: Receiver<Product>) -> Result<Parser, Return> {
     let bytes = match fs::read_to_string(PATH) {
         Ok(val) => val,
-        Err(why) => return Err(Return(why.to_string(), input_server, client)),
+        Err(why) => return Err(Return(why.to_string(), input_server, client, tasks, products)),
     };
     match from_str::<ParserSave>(&bytes) {
-        Ok(val) => Ok(Parser::from_save(val, input_server, client)),
-        Err(why) => Err(Return(why.to_string(), input_server, client)),
+        Ok(val) => Ok(Parser::from_save(val, input_server, client, tasks, products)),
+        Err(why) => Err(Return(why.to_string(), input_server, client, tasks, products)),
     }
 }
 pub fn save(parse: &Parser) -> Result<(), String>{
@@ -37,8 +37,8 @@ pub struct ParserSave {
 impl ParserSave {
     pub fn process(orig: &Parser) -> ParserSave {
         ParserSave {
-            user_dict: orig.user_dict.clone(),
-            file_options: orig.file_options.clone(),
+            user_dict: orig.int.user_dict.clone(),
+            file_options: orig.int.file_options.clone(),
             servers: ServerSave::process(&orig.servers),
         }
     }
@@ -172,7 +172,7 @@ impl LoadedMessagesSave {
             labels: loaded_messsages.labels.clone(),
             unread: loaded_messsages.unread,
             id: loaded_messsages.id.clone(),
-            more_before: loaded_messsages.more_before,
+            more_before: matches!(loaded_messsages.before, LoadingState::Unloaded),
             current: loaded_messsages.current,
             current_in_message: loaded_messsages.current_in_message,
             selected: loaded_messsages.selected,
@@ -183,11 +183,11 @@ impl LoadedMessagesSave {
             labels: self.labels,
             unread: self.unread,
             id: self.id,
-            more_before: self.more_before,
+            before: if self.more_before {LoadingState::Unloaded} else {LoadingState::Finished},
             current: self.current,
             current_in_message: self.current_in_message,
             selected: self.selected,
-            more_after: false,
+            after: LoadingState::Unloaded,
             flag: true,
         }
     }
