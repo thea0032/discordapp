@@ -9,21 +9,21 @@ impl super::Parser {
         let KeyEvent { code, modifiers: _ } = input;
         self.servers
             .get3()
-            .update(&mut self.io.client, &mut self.int.user_dict, &self.io.tasks);
+            .update(&self.io.tasks);
         self.servers
             .get3()
-            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &mut self.io.client, &self.io.tasks);
-        match self.servers.get3() {
-            Messages::Unloaded(_) => {
-                panic!("this should never happen!");
+            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &self.io.tasks);
+            match self.servers.get3() {
+                Messages::Unloaded(_) => {
+                    panic!("this should never happen!");
+                }
+                Messages::Loaded(_) => {}
+                _ => {
+                    self.int.grid.context = Context::Channel;
+                    self.reset_all();
+                    return;
+                }
             }
-            Messages::Loaded(_) => {}
-            _ => {
-                self.int.grid.context = Context::Channel;
-                self.reset_all();
-                return;
-            }
-        }
         match code {
             KeyCode::Left => {
                 self.int.grid.context = Context::Channel;
@@ -65,10 +65,21 @@ impl super::Parser {
         let KeyEvent {code, modifiers: _} = input;
         self.servers
             .get3()
-            .update(&mut self.io.client, &mut self.int.user_dict, &self.io.tasks);
+            .update(&self.io.tasks);
         self.servers
             .get3()
-            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &mut self.io.client, &self.io.tasks);
+            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &self.io.tasks);
+            match self.servers.get3() {
+                Messages::Unloaded(_) => {
+                    panic!("this should never happen!");
+                }
+                Messages::Loaded(_) => {}
+                _ => {
+                    self.int.grid.context = Context::Channel;
+                    self.reset_all();
+                    return;
+                }
+            }
         match code {
             KeyCode::Backspace | KeyCode::Esc | KeyCode::Enter => self.int.state = State::None,
             KeyCode::Left => {

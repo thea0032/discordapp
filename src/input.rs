@@ -3,12 +3,12 @@ mod channels;
 mod messages;
 mod servers;
 
-use std::{collections::HashMap, io::{stdout, Stdout}, slice::Iter, sync::{
+use std::{collections::HashMap, io::{stdout, Stdout}, sync::{
         mpsc::{channel, Receiver, Sender},
         Arc,
     }, thread::{spawn, JoinHandle}, time::Duration};
 
-use crate::{block_on::block_on, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load, save}, servers::Servers, task::{Product, Task}, textbox::Textbox};
+use crate::{block_on::block_on, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load, save}, servers::Servers, task::{Control, Product, Task}, textbox::Textbox};
 use crossterm::{
     event::{read, Event, KeyCode, KeyEvent},
     execute, queue,
@@ -25,6 +25,7 @@ use serenity::{
     },
     Client,
 };
+pub const REQUEST_LEN:usize = 50;
 
 fn grab(out: Sender<Event>) {
     spawn(move || loop {
@@ -48,7 +49,7 @@ pub enum Context {
     Message,
 }
 pub enum Response {
-    Message(client::Context, Message),
+    Message(Message),
 }
 pub struct ParserIO {
     pub input_server: Receiver<Response>,
@@ -56,6 +57,7 @@ pub struct ParserIO {
     pub input_user: Receiver<Event>,
     pub out: Stdout,
     pub tasks: Sender<Task>,
+    pub controller: Sender<Control>,
     pub products: Receiver<Product>
 }
 pub struct ParserInternal {
@@ -73,16 +75,16 @@ pub struct Parser {
     pub temp_box: Textbox,
 }
 impl Parser {
-    pub fn new(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, products: Receiver<Product>) -> Parser {
-        match load(input_server, client, tasks, products) {
+    pub fn new(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, controller: Sender<Control>, products: Receiver<Product>) -> Parser {
+        match load(input_server, client, tasks, controller, products) {
             Ok(val) => val,
-            Err(Return(why, input_server, client, tasks, products)) => {
+            Err(Return(why, input_server, client, tasks, controller, products)) => {
                 get_str(&(why + " press enter to load a new save, or ctrl+c to exit and try again."));
-                Self::complete_new(input_server, client, tasks, products)
+                Self::complete_new(input_server, client, tasks, controller, products)
             },
         }
     }
-    pub fn from_save(save: ParserSave, input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, products: Receiver<Product>) -> Parser {
+    pub fn from_save(save: ParserSave, input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, controller: Sender<Control>, products: Receiver<Product>) -> Parser {
         let (temp, input_user) = channel();
         grab(temp);
         let (max_x, max_y) = crossterm::terminal::size().expect("Cannot read size of terminal");
@@ -95,6 +97,7 @@ impl Parser {
                 client,
                 out: stdout(),
                 tasks,
+                controller,
                 products,
                 input_user,
             },
@@ -110,7 +113,7 @@ impl Parser {
             temp_box: Textbox::new(max_x),
         }
     }
-    pub fn complete_new(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, products: Receiver<Product>) -> Parser {
+    pub fn complete_new(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, controller: Sender<Control>, products: Receiver<Product>) -> Parser {
         let (temp, input_user) = channel ();
         grab(temp);
         let (max_x, max_y) = crossterm::terminal::size().expect("Cannot read size of terminal");
@@ -121,6 +124,7 @@ impl Parser {
                 client,
                 out: stdout(),
                 tasks,
+                controller,
                 products,
                 input_user,
             },
@@ -168,7 +172,7 @@ impl Parser {
     }
     pub fn handle_response(&mut self, resp: Response) {
         match resp {
-            Response::Message(_, message) => {
+            Response::Message(message) => {
                 self.add_message(message);
             }
         }
@@ -201,82 +205,59 @@ impl Parser {
     /// Returns whether a save can happen. 
     pub fn handle_product(&mut self, p: Product) -> bool {
         match p {
-            Product::MessagesBefore(content, context) => todo!(),
-            Product::MessagesAfter(content, context) => todo!(),
+            Product::MessagesBefore(content, channel) => {
+                let msg = self.servers.find_channel(channel.id(), if let Channel::Guild(v) = &channel {Some(v.guild_id)} else {None});
+                msg.assume_loaded().receive_update(&mut self.int.user_dict, content);
+            },
+            Product::MessagesAfter(content, channel) => {
+                let msg = self.servers.find_channel(channel.id(), if let Channel::Guild(v) = &channel {Some(v.guild_id)} else {None});
+                msg.assume_loaded().receive_update_after(&mut self.int.user_dict, content);
+            },
+            Product::MessagesNew(content, channel) => {
+                    let msg = self.servers.find_channel(channel.id(), if let Channel::Guild(v) = &channel {Some(v.guild_id)} else {None});;
+                    let more_messages: bool = content.len() >= REQUEST_LEN;
+                    msg.receive_new(&mut self.int.user_dict, &mut self.io.tasks, content, more_messages);
+            },
             Product::CanSave | Product::Killed =>return true,
+            Product::Can(val) => self.handle_response(val),
         }
         false
     }
     pub fn save_state(&mut self) {
         if self.int.autosave.should_save() {
-            self.io.tasks.send(Task::Mark).expect("Failed to mark!");
-            loop {
+            self.io.controller.send(Control::Drain).expect("Failed to mark!");
+            'outer: loop  {
                 let products: Vec<Product> = self.io.products.try_iter().collect();
                 for product in products {
                     if self.handle_product(product) {
                         save(&self).expect("Could not save!");
                         self.int.autosave = Autosave::save(self);
+                        break 'outer;
                     }
                 }
             }
         }
     }
     pub fn end_state(&mut self) {
-        self.io.tasks.send(Task::Kill).expect("Failed to mark!");
-        loop {
+        self.io.controller.send(Control::Kill).expect("Failed to mark!");
+        'outer: loop {
             let products: Vec<Product> = self.io.products.try_iter().collect();
             for product in products {
                 if self.handle_product(product) {
                     save(&self).expect("Could not save!");
                     self.int.autosave = Autosave::save(self);
+                    break 'outer;
                 }
             }
+            std::thread::sleep(Duration::from_millis(500));
         }
 
     }
     fn add_message(&mut self, message: Message) {
-        let channel = message.channel_id;
-        if let Some(server) = self
-            .servers
-            .contents
-            .iter()
-            .position(|x| x.s_id == message.guild_id)
-        {
-            let grabbed = self.servers.grab(server);
-            let mut category = None;
-            let mut ch = None;
-            for (i, mut item) in grabbed
-                .contents
-                .iter()
-                .map(|x| x.contents.iter())
-                .enumerate()
-            {
-                if let Some(val) = item.position(|x| {
-                    x.id()
-                        .and_then(|x| Some(x.id() == channel))
-                        .unwrap_or(false)
-                }) {
-                    category = Some(i);
-                    ch = Some(val);
-                }
-            }
-            if let (Some(category), Some(channel)) = (category, ch) {
-                if !self
-                    .servers
-                    .grab3(server, category, channel)
-                    .update_to_end(&mut self.io.client, &mut self.int.user_dict, &self.io.tasks)
-                {
-                    self.servers
-                        .grab3(server, category, channel)
-                        .assume_loaded()
-                        .add(message, None, &mut self.int.user_dict, &self.io.tasks);
-                }
-            } else {
-                panic!("No channel/category found!");
-            }
-        } else {
-            panic!("No server found!");
-        }
+        let ch = message.channel_id;
+        let guild = message.guild_id;
+        let res = self.servers.find_channel(ch, guild);
+        res.receive_message(&mut self.int.user_dict, &self.io.tasks, message);
     }
     fn parse_none(&mut self, input: KeyEvent) {
         match self.int.grid.context {
@@ -348,7 +329,7 @@ impl Parser {
         self.servers.get2().draw(&self.int.grid, &mut self.io.out);
         self.servers
             .get3()
-            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &mut self.io.client, &self.io.tasks);
+            .draw(&self.int.grid, &mut self.io.out, &mut self.int.user_dict, &self.io.tasks);
         self.message_box.draw(
             self.int.grid.start_x as u16,
             self.int.grid.border_y as u16,
@@ -414,6 +395,51 @@ impl Parser {
         Arc::clone(&self.io.client.cache_and_http.http)
     }
     fn network_update_first(&mut self) {
+        let v = block_on(
+            self.http()
+                .get_guilds(&GuildPagination::After(GuildId(0)), 100),
+        );
+        if let Ok(val) = v {
+            let result = self.network_update_channels(val.clone());
+            for (item, server) in result.into_iter().zip(val) {
+                // each server
+                self.servers.add(server.name, None, server.id);
+                for (category, item) in item {
+                    // each category
+                    if let Some(_) = category {
+                        self.servers.last().add(
+                            item.category
+                                .clone()
+                                .and_then(|x| Some(x.name))
+                                .unwrap_or("unnamed category".to_string()),
+                            None,
+                            item.category.clone(),
+                        );
+                        for channel in item.channels {
+                            // each channel
+                            self.servers.last2().add(
+                                channel.name.clone(),
+                                None,
+                                Channel::Guild(channel),
+                            );
+                        }
+                    } else {
+                        for channel in item.channels {
+                            // each channel
+                            self.servers.last().grab(0).add(
+                                channel.name.clone(),
+                                None,
+                                Channel::Guild(channel),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        self.load_dms();
+    }
+    
+    fn network_update_subsequent(&mut self) {
         let v = block_on(
             self.http()
                 .get_guilds(&GuildPagination::After(GuildId(0)), 100),

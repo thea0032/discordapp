@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, fs, io::stdout, sync::mpsc::{Receiver, Sender, channel}, time::{Duration, Instant}};
 
-use crate::messages::LoadingState;
+use crate::{messages::LoadingState, task::Control};
 use serenity::{Client, model::{
     channel::{Channel, GuildChannel},
     id::{GuildId},
@@ -11,15 +11,15 @@ use crate::{categories::{Categories, CategoryLabel}, channels::{ChannelLabel, Ch
 
 pub const PATH:&str = "save.ignore";
 
-pub struct Return(pub String, pub Receiver<Response>, pub Client, pub Sender<Task>, pub Receiver<Product>);
-pub fn load(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, products: Receiver<Product>) -> Result<Parser, Return> {
+pub struct Return(pub String, pub Receiver<Response>, pub Client, pub Sender<Task>, pub Sender<Control>, pub Receiver<Product>);
+pub fn load(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, control: Sender<Control>, products: Receiver<Product>) -> Result<Parser, Return> {
     let bytes = match fs::read_to_string(PATH) {
         Ok(val) => val,
-        Err(why) => return Err(Return(why.to_string(), input_server, client, tasks, products)),
+        Err(why) => return Err(Return(why.to_string(), input_server, client, tasks, control, products)),
     };
     match from_str::<ParserSave>(&bytes) {
-        Ok(val) => Ok(Parser::from_save(val, input_server, client, tasks, products)),
-        Err(why) => Err(Return(why.to_string(), input_server, client, tasks, products)),
+        Ok(val) => Ok(Parser::from_save(val, input_server, client, tasks, control, products)),
+        Err(why) => Err(Return(why.to_string(), input_server, client, tasks, control, products)),
     }
 }
 pub fn save(parse: &Parser) -> Result<(), String>{
@@ -144,7 +144,7 @@ impl MessagesSave {
             Messages::Unloaded(val) => MessagesSave::Unloaded((*val).clone()),
             Messages::Nonexistent => MessagesSave::Nonexistent,
             Messages::Loaded(val) => MessagesSave::Loaded(LoadedMessagesSave::process(val)),
-            
+            Messages::Loading(_) => panic!("Illegal savestate!"),
         }
     }
     pub fn reload(self) -> Messages {

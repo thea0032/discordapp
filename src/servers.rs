@@ -1,7 +1,7 @@
 use std::io::Stdout;
 
 use crossterm::{queue, style::Print};
-use serenity::model::id::GuildId;
+use serenity::model::{channel::{Channel, Message}, id::{ChannelId, GuildId}};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{ansi, categories::Categories, channels::Channels, colors::SimpleColor, grid::Grid, messages::Messages};
@@ -219,6 +219,39 @@ impl Servers {
             self.labels.len() - height
         } else {
             self.current - height / 2
+        }
+    }
+    pub fn find_channel(&mut self, channel: ChannelId, guild: Option<GuildId>) -> &mut Messages {
+        if let Some(server) = self
+            .contents
+            .iter()
+            .position(|x| x.s_id == guild)
+        {
+            let grabbed = self.grab(server);
+            let mut category = None;
+            let mut ch = None;
+            for (i, mut item) in grabbed
+                .contents
+                .iter()
+                .map(|x| x.contents.iter())
+                .enumerate()
+            {
+                if let Some(val) = item.position(|x| {
+                    x.id()
+                        .and_then(|x| Some(x.id() == channel))
+                        .unwrap_or(false)
+                }) {
+                    category = Some(i);
+                    ch = Some(val);
+                }
+            }
+            if let (Some(category), Some(channel)) = (category, ch) {
+                return self.grab3(server, category, channel);
+            } else {
+                panic!("No channel/category found!");
+            }
+        } else {
+            panic!("No server found!");
         }
     }
 }

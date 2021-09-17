@@ -2,11 +2,8 @@ use std::collections::{HashMap, LinkedList};
 
 use chrono::{DateTime, Local};
 use crate::{block_on::block_on, colors::Color, task::{Task, process}};
-use serenity::model::{
-    channel::{Attachment, Embed},
-    id::{MessageId, UserId},
-};
-use std::sync::mpsc::Sender;
+use serenity::model::{channel::{Attachment, Embed, Message}, id::{MessageId, UserId}};
+use futures::channel::mpsc::Sender;
 
 use crate::{
     ansi::COLORS,
@@ -41,13 +38,23 @@ pub struct LoadedMessage {
     pub user: UserId,
     pub first_time: DateTime<Local>,
     pub id: MessageId,
+    pub username: String,
 }
 impl LoadedMessage {
+    pub fn from_message(msg: Message, tasks: &mut Vec<Task>) -> Self {
+        let split_val = msg.content.split("\n").into_iter().map(|x| x.to_string()).collect();
+        let mut v = LoadedMessage::from_content(msg.author.id, split_val, msg.timestamp.with_timezone(&Local), msg.id, msg.author.name);
+        for line in msg.attachments {
+            v = v.attachment(line, tasks);
+        }
+        v
+    }
     pub fn from_content(
         name: UserId,
         s: Vec<String>,
         time: DateTime<Local>,
         id: MessageId,
+        username: String,
     ) -> Self {
         LoadedMessage {
             content: LoadedMessageInstance::new(s, time),
@@ -56,6 +63,7 @@ impl LoadedMessage {
             user: name,
             first_time: time,
             id,
+            username,
         }
     }
     pub fn push_content(&mut self, s: Vec<String>, time: DateTime<Local>) {
@@ -64,12 +72,12 @@ impl LoadedMessage {
     pub fn last(&mut self) -> &mut LoadedMessageInstance {
         self.next.front_mut().unwrap_or(&mut self.content)
     }
-    pub fn attachment(mut self, v: Attachment, send: &Sender<Task>) -> Self {
+    pub fn attachment(mut self, v: Attachment, tasks: &mut Vec<Task>) -> Self {
         let url = process(v.url.clone());
         let name = v.filename.clone();
         let (location, should_download) = fs_write(&url);
         if should_download {
-            send.send(Task::Download(v, location.clone())).expect("Could not send task!");
+            tasks.push(Task::Download(v, name.clone()));
         }
         self.last().attachment_url.push(location);
         self.last().attachments.push(name);

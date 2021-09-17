@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crossterm::event::{KeyCode, KeyEvent};
 
 use super::State;

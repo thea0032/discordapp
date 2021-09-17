@@ -1,8 +1,5 @@
-use std::env::current_dir;
 use std::fs;
-use std::io::stdin;
 use std::io::stdout;
-use std::io::Write;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
 
@@ -15,11 +12,12 @@ use input::Response;
 use serenity::framework::StandardFramework;
 use serenity::{async_trait, model::channel::Message, prelude::*};
 
+use crate::block_on::block_on;
+
 #[allow(dead_code)]
 mod ansi;
 pub mod categories;
 pub mod channels;
-mod event;
 mod file;
 mod format;
 pub mod grid;
@@ -45,9 +43,9 @@ impl EventHandler for Handler {
     //
     // Event handlers are dispatched through a threadpool, and so multiple
     // events can be dispatched simultaneously.
-    async fn message(&self, ctx: Context, msg: Message) {
+    async fn message(&self, _: Context, msg: Message) {
         let sent = Mutex::lock(&self.send).await;
-        sent.send(Response::Message(ctx, msg))
+        sent.send(Response::Message(msg))
             .expect("the receiver has hung up!");
     }
 
@@ -62,10 +60,13 @@ fn get_token() -> String {
     if let Ok(val) = fs::read_to_string("token.ignore") {
         val
     } else {
-        file::get_str("Couldn't find token in filesystem! You will now be prompted to enter the token manually.")
+        let res = file::get_str("Couldn't find token in filesystem! You will now be prompted to enter the token manually.");
+        let _ = fs::write("token.ignore", &res);
+        res
     }
 }
 fn main() {
+    std::fs::create_dir("output");
     let token = get_token();
     // Configure the client with your Discord bot token in the environment.
     let (send, recv) = channel();
@@ -73,14 +74,14 @@ fn main() {
     // automatically prepend your bot token with "Bot ", which is a requirement
     // by Discord for bot users.
     let framework = StandardFramework::new();
-    let mut client = block_on::block_on(Client::builder(&token)
+    let mut client = block_on(Client::builder(&token)
         .framework(framework)
         .event_handler(Handler {
             send: Mutex::new(send),
         }))
         .expect("Err creating client");
     let framework = StandardFramework::new();
-    let client2 = block_on::block_on(Client::builder(&token)
+    let client2 = block_on(Client::builder(&token)
         .framework(framework)
         .event_handler(DummyHandler))
         .expect("Err creating client");
@@ -92,8 +93,8 @@ fn main() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let future = std::thread::spawn(move || runtime.block_on(client.start()));
     let _ = execute!(stdout(), terminal::Clear(ClearType::All)).expect("fatal error: "); // clears the terminal
-    let (tasks, products) = crate::task::start(&token);
-    let parser = input::Parser::new(recv, client2, tasks, products);
+    let (tasks, controller, products) = crate::task::start(&token);
+    let parser = input::Parser::new(recv, client2, tasks, controller, products);
     enable_raw_mode().expect("fatal error: ");
     let v = parser.start(); // starts on a new thread
     v.join().expect("fatal error: ");

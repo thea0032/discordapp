@@ -1,15 +1,10 @@
-use std::{collections::VecDeque, io::Stdout, sync::{Arc, mpsc::Sender}};
+use std::{collections::VecDeque, io::Stdout, sync::{Arc, mpsc::Sender}, time::Duration};
 
 use chrono::Local;
-use crossterm::{queue, style::Print};
+use crossterm::{cursor::MoveTo, queue, style::Print};
 
-use crate::{block_on::block_on, colors::Color, task::{MessageSearch, Task}};
-use serenity::{
-    model::{
-        channel::{Channel, Message, PrivateChannel},
-    },
-    Client,
-};
+use crate::{block_on::block_on, colors::Color, input::Response, task::{Task}};
+use serenity::{Client, model::{channel::{Channel, Message, PrivateChannel}, id::MessageId}};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
@@ -22,6 +17,7 @@ use crate::{
 
 pub enum Messages {
     Unloaded(Channel),
+    Loading(Channel),
     Loaded(LoadedMessages),
     Nonexistent,
 }
@@ -41,50 +37,41 @@ impl Messages {
         match &self {
             Messages::Unloaded(val) => Some(val.clone()),
             Messages::Loaded(val) => Some(val.id.clone()),
+            Messages::Loading(val) => Some(val.clone()),
             Messages::Nonexistent => None,
         }
     }
-    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client, tasks: &Sender<Task>) -> bool {
+    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, tasks: &Sender<Task>) -> bool {
         match self {
             Messages::Unloaded(_) => false,
-            Messages::Loaded(val) => val.draw(grid, out, dict, client, tasks),
+            Messages::Loading(_) => {
+                queue!(out, MoveTo(grid.border_3 as u16, grid.start_y as u16));
+                queue!(out, Print("This channel is currently still loading."));
+                true
+            },
+            Messages::Loaded(val) => val.draw(grid, out, dict, tasks),
             Messages::Nonexistent => false,
         }
     }
-    pub fn update(&mut self, client: &mut Client, dict: &mut UserDict, tasks: &Sender<Task>) {
+    pub fn receive_new(&mut self, dict: &mut UserDict, tasks: &Sender<Task>, messages: Vec<LoadedMessage>, more:bool) {
+        if let Messages::Loading(v) = self {
+            *self = Messages::Loaded(LoadedMessages::with_finished_messages(v.clone(), messages, more, dict));
+        }
+    }
+    pub fn update(&mut self, tasks: &Sender<Task>) {
         if let Messages::Unloaded(v) = self {
-            if let Some(val) = v.clone().guild() {
-                let (messages, more) = Parser::get_messages(client, val.clone());
-                *self = Messages::Loaded(LoadedMessages::with_messages(
-                    v.clone(),
-                    messages,
-                    more,
-                    dict,
-                    tasks,
-                ));
-            } else if let Some(val) = v.clone().private() {
-                let (messages, more) = Parser::get_messages_p(client, val.clone());
-                *self = Messages::Loaded(LoadedMessages::with_messages(
-                    v.clone(),
-                    messages,
-                    more,
-                    dict,
-                    tasks,
-                ));
-            } else {
-                panic!("We have encountered a new channel type somehow!")
-            }
+            tasks.send(Task::GetNewMessages(v.clone())).expect("Could not send!");
+            *self = Messages::Loading(v.clone());
         }
     }
     /// Updates this to make sure any extra messages are included. Returns true if an update was performed, and false if no such update was.  
     pub fn update_to_end(&mut self, client: &mut Client, dict: &mut UserDict, tasks: &Sender<Task>) -> bool {
-        self.update(client, dict, tasks);
         if let Messages::Loaded(v) = self {
             if matches!(v.after, LoadingState::Unloaded) {
                 // gets the message id to use as a timestamp. If there are no messages, a default of zero is used. 
-                let message_id = v.labels.back().and_then(|x| Some(x.id.0)).unwrap_or(0);
+                let message_id = v.labels.back().and_then(|x| Some(x.id)).unwrap_or(MessageId(0));
                 let ch = v.id.clone();
-                tasks.send(Task::GetMessages(ch, MessageSearch::After(message_id)));
+                tasks.send(Task::GetMessagesAfter(ch, message_id)).expect("Could not send task!");
                 v.after = LoadingState::Loading;
                 true
             } else {
@@ -101,6 +88,21 @@ impl Messages {
             panic!("unwrap failed!")
         }
     }
+    pub fn receive_message(&mut self, dict: &mut UserDict, tasks: &Sender<Task>, msg: Message) {
+        match self {
+            Messages::Unloaded(ch) => {
+                tasks.send(Task::GetNewMessages(ch.clone()));
+                tasks.send(Task::Kick(Response::Message(msg), Duration::from_millis(100)));
+            },
+            Messages::Loading(_) => {
+                tasks.send(Task::Kick(Response::Message(msg), Duration::from_millis(100)));
+            },
+            Messages::Loaded(val) => {
+                val.receive_message(dict, tasks, msg);
+            },
+            Messages::Nonexistent => todo!(),
+        }
+    } 
 }
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum LoadingState {
@@ -130,7 +132,23 @@ impl LoadedMessages {
         let mut result = LoadedMessages::new(id);
         result.before = if more {LoadingState::Unloaded} else {LoadingState::Finished};
         for line in messages.into_iter().rev() {
-            result.add(line, None, dict, tasks);
+            let mut task_buffer = Vec::new();
+            result.add_complete(LoadedMessage::from_message(line, &mut task_buffer), None, dict);
+            for line in task_buffer {
+                tasks.send(line);
+            }
+        }
+        result
+    }pub fn with_finished_messages(
+        id: Channel,
+        messages: Vec<LoadedMessage>,
+        more: bool,
+        dict: &mut UserDict,
+    ) -> Self {
+        let mut result = LoadedMessages::new(id);
+        result.before = if more {LoadingState::Unloaded} else {LoadingState::Finished};
+        for line in messages.into_iter().rev() {
+            result.add_complete(line, None, dict);
         }
         result
     }
@@ -221,6 +239,50 @@ impl LoadedMessages {
         self.unread = pos;
         self.flag = true;
     }
+    pub fn receive_message(&mut self, dict: &mut UserDict, tasks: &Sender<Task>, msg: Message) {
+        match self.after {
+            LoadingState::Finished => {
+                let mut task_buffer = Vec::new();
+                self.add_complete(crate::message::LoadedMessage::from_message(msg, &mut task_buffer), None, dict);
+                for line in task_buffer {
+                    tasks.send(line);
+                }
+            },
+            LoadingState::Unloaded => {
+                tasks.send(Task::GetMessagesAfter(self.id.clone(), self.labels.front().map(|x| x.id).unwrap_or(MessageId(0)))).expect("could not send!");
+                tasks.send(Task::Kick(Response::Message(msg), Duration::from_millis(100))).expect("could not send!");
+            },
+            LoadingState::Loading => {
+                tasks.send(Task::Kick(Response::Message(msg), Duration::from_millis(100))).expect("could not send!");
+            },
+        }
+    }
+    pub fn add_complete(&mut self, msg: LoadedMessage, pos: Option<usize>, dict: &mut UserDict) {
+        dict.contents
+            .entry(msg.user)
+            .or_insert_with(|| UserInfo {
+                name: msg.username.clone(),
+                color: Color::new(),
+            });
+        let content = msg.content.clone();
+        let name = msg.username.clone();
+        if let Some(pos) = pos {
+            if pos <= self.current {
+                self.current += 1;
+            }
+            if pos <= self.selected {
+                self.selected += 1;
+            }
+            self.labels.insert(pos, msg);
+        } else {
+            self.labels.push_back(msg);
+            if self.labels.len() > 2 && self.labels.len() - 2 == self.current {
+                self.current += 1;
+            }
+        }
+        self.flag = true;
+    }
+    /*
     pub fn add(&mut self, msg: Message, pos: Option<usize>, dict: &mut UserDict, tasks: &Sender<Task>) {
         dict.contents
             .entry(msg.author.id)
@@ -231,10 +293,10 @@ impl LoadedMessages {
         let content = msg.content.clone();
         let name = msg.author.id;
         if let Some(pos) = pos {
-            if pos < self.current {
+            if pos <= self.current {
                 self.current += 1;
             }
-            if pos < self.selected {
+            if pos <= self.selected {
                 self.selected += 1;
             }
             let mut message = LoadedMessage::from_content(
@@ -242,6 +304,7 @@ impl LoadedMessages {
                 content.lines().map(|x| x.to_string()).collect(),
                 msg.timestamp.with_timezone(&Local),
                 msg.id,
+                msg.author.name,
             );
             for embed in msg.embeds {
                 crate::file::add_on("debug", &format!("{:?}", embed));
@@ -257,6 +320,7 @@ impl LoadedMessages {
                 content.split('\n').map(|x| x.to_string()).collect(),
                 msg.timestamp.with_timezone(&Local),
                 msg.id,
+                msg.author.name,
             );
             for embed in msg.embeds {
                 crate::file::add_on("debug", &format!("{:?}", embed));
@@ -271,7 +335,7 @@ impl LoadedMessages {
             }
         }
         self.flag = true;
-    }
+    }*/
     fn remove(&mut self, pos: usize) {
         if pos <= self.current {
             self.current -= 1;
@@ -282,16 +346,16 @@ impl LoadedMessages {
         self.labels.remove(pos);
         self.flag = true;
     }
-    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client, tasks: &Sender<Task>) -> bool {
+    pub fn draw(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, tasks: &Sender<Task>) -> bool {
         if self.flag {
-            self.draw_real_new(grid, out, dict, client, tasks);
+            self.draw_real(grid, out, dict, tasks);
             self.flag = false;
             true
         } else {
             false
         }
     }
-    fn draw_real_new(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, client: &mut Client, tasks: &Sender<Task>) {
+    fn draw_real(&mut self, grid: &Grid, out: &mut Stdout, dict: &mut UserDict, tasks: &Sender<Task>) {
         let mut counter = 0;
         let start = self.beginning_pos(grid.height());
         let sample = " ".graphemes(true).cycle();
@@ -369,15 +433,36 @@ impl LoadedMessages {
             let _ = queue!(out, Print(crate::ansi::RESET.to_string()));
         }
         if self.current < grid.height() / 2 {
-            self.update(client, dict, tasks);
+            self.update(tasks);
         }
     }
     /// Provides an extra update towards the beginning
-    fn update(&mut self, client: &mut Client, dict: &mut UserDict, tasks: &Sender<Task>) {
+    fn update(&mut self, tasks: &Sender<Task>) {
         if matches!(self.before, LoadingState::Unloaded) {
             let id = self.labels[0].id;
             let channel = self.id.clone();
-            tasks.send(Task::GetMessages(channel, MessageSearch::Before(id.0)));
+            tasks.send(Task::GetMessagesBefore(channel, id)).expect("Could not send!");
+            self.before = LoadingState::Loading;
+        }
+    }
+    pub fn receive_update(&mut self, dict: &mut UserDict, payload: Vec<LoadedMessage>) {
+        if payload.is_empty() {
+            self.before = LoadingState::Finished;
+        } else {
+            self.before = LoadingState::Unloaded;
+            for msg in payload {
+                self.add_complete(msg, Some(0), dict);
+            }
+        }
+    }
+    pub fn receive_update_after(&mut self, dict: &mut UserDict, payload: Vec<LoadedMessage>) {
+        if payload.is_empty() {
+            self.after = LoadingState::Finished;
+        } else {
+            self.after = LoadingState::Unloaded;
+            for msg in payload {
+                self.add_complete(msg, None, dict);
+            }
         }
     }
     fn beginning_pos(&self, height: usize) -> usize {

@@ -5,3 +5,5 @@
 4. Create a get_message function that gets more than 50 messages
 5. Add more messages when you approach the top of a channel
 6. Add "jump to present" function
+7. Add quick scrolling
+8. Add shortcuts for convenient, processing power-saving functions [eg "go up 5 times"]
