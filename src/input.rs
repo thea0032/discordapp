@@ -106,7 +106,7 @@ impl Parser {
                 grid,
                 user_dict: save.user_dict,
                 autosave: Autosave::new(),
-                file_options: save.file_options,
+                file_options: FileOptions::new(),
             },
             servers: save.servers.reload(),
             message_box: Textbox::new(max_x),

@@ -77,7 +77,7 @@ impl LoadedMessage {
         let name = v.filename.clone();
         let (location, should_download) = fs_write(&url);
         if should_download {
-            tasks.push(Task::Download(v, name.clone()));
+            tasks.push(Task::Download(v, url.clone()));
         }
         self.last().attachment_url.push(location);
         self.last().attachments.push(name);

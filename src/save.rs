@@ -7,7 +7,7 @@ use serenity::{Client, model::{
 }};
 use serde_json::to_string;
 use serde_json::from_str;
-use crate::{categories::{Categories, CategoryLabel}, channels::{ChannelLabel, Channels}, file::FileOptions, grid::Grid, input::{Parser, Response, State}, message::{LoadedMessage, UserDict}, messages::{LoadedMessages, Messages}, servers::{ServerLabel, Servers, Unread}, task::{Product, Task}, textbox::Textbox};
+use crate::{categories::{Categories, CategoryLabel}, channels::{ChannelLabel, Channels}, grid::Grid, input::{Parser, Response, State}, message::{LoadedMessage, UserDict}, messages::{LoadedMessages, Messages}, servers::{ServerLabel, Servers, Unread}, task::{Product, Task}, textbox::Textbox};
 
 pub const PATH:&str = "save.ignore";
 
@@ -31,14 +31,12 @@ pub fn save(parse: &Parser) -> Result<(), String>{
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ParserSave {
     pub user_dict: UserDict,
-    pub file_options: FileOptions,
     pub servers: ServerSave,
 }
 impl ParserSave {
     pub fn process(orig: &Parser) -> ParserSave {
         ParserSave {
             user_dict: orig.int.user_dict.clone(),
-            file_options: orig.int.file_options.clone(),
             servers: ServerSave::process(&orig.servers),
         }
     }

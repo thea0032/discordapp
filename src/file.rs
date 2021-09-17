@@ -111,11 +111,17 @@ pub struct FileOptions {
 }
 impl FileOptions {
     pub fn new() -> FileOptions {
-        //let browser = get_file_root("please choose the browser you would like to use with this interface.").expect("failed to select a browser");
-        FileOptions {
-            browser: "\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
-                .to_string(),
+        if let Ok(val) = fs::read("config.ignore") {
+            if let Ok(val) = serde_json::from_slice(&val) {
+                return val;
+            }
         }
+        let v = get_file(&current_dir(), "Could not read/parse config file! Please enter an application to open files with:").expect("Could not read file!");
+        let f = FileOptions {
+            browser: v
+        };
+        let _ = fs::write("config.ignore", serde_json::to_string(&f).expect("Could not convert!"));
+        f
     }
     pub fn open(&self, file: &str) {
         let extension = file.split('.').last(); // the extension will be used later.
