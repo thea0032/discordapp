@@ -4,7 +4,7 @@ use crossterm::{queue, style::Print};
 use serenity::model::{channel::{Channel, Message}, id::{ChannelId, GuildId}};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{ansi, categories::Categories, channels::Channels, colors::SimpleColor, grid::Grid, messages::Messages};
+use crate::{ansi, categories::Categories, channels::Channels, colors::SimpleColor, render::Grid, messages::Messages};
 const DEFAULT: &str = "uncategorized channels";
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

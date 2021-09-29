@@ -9,8 +9,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     ansi,
-    file::FileOptions,
-    grid::Grid,
+    file::ExtConfig,
+    render::Grid,
     input::Parser,
     message::{LoadedMessage, UserDict, UserInfo},
 };
@@ -513,7 +513,7 @@ impl LoadedMessages {
         let u_id = self.labels[self.current].user;
         block_on(u_id.create_dm_channel(Arc::clone(&client.cache_and_http)))
     }
-    pub fn open(&self, options: &FileOptions, grid: &Grid) {
+    pub fn open(&self, options: &ExtConfig, grid: &Grid) {
         if let Some(val) = self.attachment_pos(grid) {
             options.open(&self.labels[self.current].content.attachment_url[val]);
         } else {

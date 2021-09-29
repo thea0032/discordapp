@@ -8,7 +8,7 @@ use std::{collections::HashMap, io::{stdout, Stdout}, sync::{
         Arc,
     }, thread::{spawn, JoinHandle}, time::Duration};
 
-use crate::{block_on::block_on, file::{FileOptions, get_str}, grid::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load, save}, servers::Servers, task::{Control, Product, Task}, textbox::Textbox};
+use crate::{block_on::block_on, file::{ExtConfig, get_str}, render::Grid, message::UserDict, save::{Autosave, ParserSave, Return, load, save}, servers::Servers, task::{Control, Product, Task}, textbox::Textbox};
 use crossterm::{
     event::{read, Event, KeyCode, KeyEvent},
     execute, queue,
@@ -64,7 +64,7 @@ pub struct ParserInternal {
     pub state: State,
     pub grid: Grid,
     pub user_dict: UserDict,
-    pub file_options: FileOptions,
+    pub file_options: ExtConfig,
     pub autosave: Autosave,
 }
 pub struct Parser {
@@ -106,7 +106,7 @@ impl Parser {
                 grid,
                 user_dict: save.user_dict,
                 autosave: Autosave::new(),
-                file_options: FileOptions::new(),
+                file_options: ExtConfig::new(),
             },
             servers: save.servers.reload(),
             message_box: Textbox::new(max_x),
@@ -133,7 +133,7 @@ impl Parser {
                 grid,
                 user_dict: UserDict::new(),
                 autosave: Autosave::new(),
-                file_options: FileOptions::new(),
+                file_options: ExtConfig::new(),
             },
             servers: Servers::new(),
             message_box: Textbox::new(max_x as usize),

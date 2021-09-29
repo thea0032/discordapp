@@ -20,7 +20,7 @@ pub mod categories;
 pub mod channels;
 mod file;
 mod format;
-pub mod grid;
+pub mod render;
 mod input;
 mod message;
 pub mod messages;
@@ -66,7 +66,8 @@ fn get_token() -> String {
     }
 }
 fn main() {
-    std::fs::create_dir("output");
+    let _ = std::fs::create_dir("output");
+    let _ = std::fs::create_dir("save");
     let token = get_token();
     // Configure the client with your Discord bot token in the environment.
     let (send, recv) = channel();

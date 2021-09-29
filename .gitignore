@@ -1,4 +1,5 @@
 target
 *.ignore
 debug*
-output/*
+output
+save

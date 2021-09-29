@@ -1,8 +1,13 @@
 use std::fs::{self, read, write};
 use std::io::{self, stdin, stdout, Write};
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc::Receiver;
+
+use serenity::model::event::Event;
 
 use crate::ansi;
+use crate::render::Grid;
 
 #[cfg(target_os = "windows")]
 pub const SEP: char = '\\';
@@ -105,29 +110,56 @@ pub fn get_file(current: &str, prompt: &str) -> io::Result<String> {
     }
 }
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
-pub struct FileOptions {
-    // the path to the browser
-    pub browser: String,
+pub struct ExtConfig {
+    // the path to the default application to open files
+    pub default_path: String,
+    // the file extensions w/ different programs
+    pub extensions: Vec<Vec<String>>,
+    // the corresponding paths to the programs associated with the file extensions
+    pub paths: Vec<String>,
 }
-impl FileOptions {
-    pub fn new() -> FileOptions {
-        if let Ok(val) = fs::read("config.ignore") {
+impl ExtConfig {
+    pub fn new() -> ExtConfig {
+        let mut path = PathBuf::new();
+        path.push("save");
+        path.push("config.json");
+        if let Ok(val) = fs::read(&path) {
             if let Ok(val) = serde_json::from_slice(&val) {
                 return val;
             }
         }
         let v = get_file(&current_dir(), "Could not read/parse config file! Please enter an application to open files with:").expect("Could not read file!");
-        let f = FileOptions {
-            browser: v
+        let f = ExtConfig {
+            default_path: v,
+            extensions: Vec::new(),
+            paths: Vec::new(),
         };
-        let _ = fs::write("config.ignore", serde_json::to_string(&f).expect("Could not convert!"));
+        let _ = fs::write(&path, serde_json::to_string(&f).expect("Could not convert!"));
         f
     }
     pub fn open(&self, file: &str) {
         let extension = file.split('.').last(); // the extension will be used later.
-        Command::new(&self.browser)
+        let mut v: Option<usize> = None; 
+        if let Some(val) = extension {
+            for (i, line) in self.extensions.iter().enumerate() {
+                if line.iter().any(|x| x == val) {
+                    v = Some(i); 
+                    break;
+                }
+            }
+        }
+        Command::new(if let Some(val) = v {
+            &self.paths[val]
+        } else {
+            &self.default_path
+        })
             .arg(file)
             .spawn()
             .expect("Could not open file!");
+    }
+    pub fn edit(&mut self, recv:Receiver<Event>, grid: &mut Grid) {
+        loop {
+            
+        }
     }
 }

@@ -1,3 +1,5 @@
+use std::io::Stdout;
+
 use crate::input::Context;
 
 pub struct Grid {

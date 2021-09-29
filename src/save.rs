@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fs, io::stdout, sync::mpsc::{Receiver, Sender, channel}, time::{Duration, Instant}};
+use std::{collections::VecDeque, fs, io::stdout, path::PathBuf, sync::mpsc::{Receiver, Sender, channel}, time::{Duration, Instant}};
 
 use crate::{messages::LoadingState, task::Control};
 use serenity::{Client, model::{
@@ -7,9 +7,11 @@ use serenity::{Client, model::{
 }};
 use serde_json::to_string;
 use serde_json::from_str;
-use crate::{categories::{Categories, CategoryLabel}, channels::{ChannelLabel, Channels}, grid::Grid, input::{Parser, Response, State}, message::{LoadedMessage, UserDict}, messages::{LoadedMessages, Messages}, servers::{ServerLabel, Servers, Unread}, task::{Product, Task}, textbox::Textbox};
+use crate::{categories::{Categories, CategoryLabel}, channels::{ChannelLabel, Channels}, render::Grid, input::{Parser, Response, State}, message::{LoadedMessage, UserDict}, messages::{LoadedMessages, Messages}, servers::{ServerLabel, Servers, Unread}, task::{Product, Task}, textbox::Textbox};
 
-pub const PATH:&str = "save.ignore";
+pub const SAVE_DIR:&str = "save";
+
+pub const PATH:&str = "messages.json";
 
 pub struct Return(pub String, pub Receiver<Response>, pub Client, pub Sender<Task>, pub Sender<Control>, pub Receiver<Product>);
 pub fn load(input_server: Receiver<Response>, client: Client, tasks: Sender<Task>, control: Sender<Control>, products: Receiver<Product>) -> Result<Parser, Return> {
@@ -25,7 +27,10 @@ pub fn load(input_server: Receiver<Response>, client: Client, tasks: Sender<Task
 pub fn save(parse: &Parser) -> Result<(), String>{
     let v = ParserSave::process(parse);
     let bytes = to_string(&v).map_err(|x| x.to_string())?;
-    fs::write(PATH, bytes).map_err(|x| x.to_string())?;
+    let mut pb: PathBuf = PathBuf::new();
+    pb.push(SAVE_DIR);
+    pb.push(PATH);
+    fs::write(pb, bytes).map_err(|x| x.to_string())?;
     Ok(())
 }
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

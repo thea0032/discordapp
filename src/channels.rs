@@ -5,7 +5,7 @@ use serenity::model::channel::{Channel, GuildChannel};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::colors::SimpleColor;
-use crate::{ansi, grid::Grid, messages::Messages};
+use crate::{ansi, render::Grid, messages::Messages};
 
 use crate::servers::Unread;
 #[derive(Clone, serde::Serialize, serde::Deserialize)]

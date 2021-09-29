@@ -9,7 +9,7 @@ use crate::servers::Unread;
 use crate::{
     ansi,
     channels::{self, Channels},
-    grid::Grid,
+    render::Grid,
 };
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 
